@@ -9,7 +9,7 @@
   4. Ставит зависимости (aiogram, aiohttp, paramiko, requests, aiocryptopay).
   5. Создаёт 3 systemd-сервиса (автозапуск + авторестарт):
        - aeroprojectvpn-bot.service       (Telegram-бот-лаунчер)
-       - aeroprojectvpn-sub.service        (Subscription API, :8080)
+       - aeroprojectvpn-sub.service        (Subscription API, :9091)
        - aeroprojectvpn-webapp.service     (Mini App бэкенд, :9090)
   6. Перезапускает, проверяет статус и печатает nginx-сниппет для Mini App.
 
