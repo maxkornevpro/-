@@ -31,11 +31,11 @@ VPS2_3XUI_PASSWORD = "AeroEE_3xUi!2026"
 # Branding
 VPN_NAME = "AeroProjectVPN"
 VPN_WEB_URL = "https://ee.aeroproject.fun"
-SUBSCRIPTION_BASE_URL = "https://ee.aeroproject.fun"
+SUBSCRIPTION_BASE_URL = "https://ee.aeroproject.fun:9091"
 
 # ==================== TELEGRAM MINI APP ====================
 # Публичный HTTPS-URL Mini App (отдаётся nginx'ом, проксируется на WEBAPP_PORT).
-WEBAPP_URL = "https://ee.aeroproject.fun/tgapp/"
+WEBAPP_URL = "https://ee.aeroproject.fun:9090/tgapp/"
 # Локальный порт, на котором слушает aiohttp-бэкенд Mini App.
 # 9091 занят subscription_api, поэтому Mini App — на 9090.
 WEBAPP_PORT = 9090
