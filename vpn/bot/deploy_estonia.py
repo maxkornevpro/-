@@ -192,12 +192,30 @@ def main():
 🔧 ОСТАЛОСЬ ОДНО: отдать Mini App по HTTPS через nginx.
 Добавь в server-блок домена ee.aeroproject.fun (внутри 443) эти location:
 
-    location = {WEBAPP_PATH.rstrip('/') } {{
+    location = {WEBAPP_PATH.rstrip('/')} {{
         return 301 {WEBAPP_PATH};
     }}
 
     location {WEBAPP_PATH} {{
         proxy_pass http://127.0.0.1:{WEBAPP_PORT}/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }}
+
+    location /sub/ {{
+        proxy_pass http://127.0.0.1:9091/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }}
+
+    location /api/sub/ {{
+        proxy_pass http://127.0.0.1:9091/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }}
+
+    location /config/ {{
+        proxy_pass http://127.0.0.1:9091/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }}
