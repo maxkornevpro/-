@@ -37,7 +37,8 @@ SUBSCRIPTION_BASE_URL = "https://ee.aeroproject.fun"
 # Публичный HTTPS-URL Mini App (отдаётся nginx'ом, проксируется на WEBAPP_PORT).
 WEBAPP_URL = "https://ee.aeroproject.fun/tgapp/"
 # Локальный порт, на котором слушает aiohttp-бэкенд Mini App.
-WEBAPP_PORT = 8090
+# 8080 занят subscription_api, поэтому Mini App — на 9090.
+WEBAPP_PORT = 9090
 # Требовать подписку на канал перед доступом к приложению.
 CHANNEL_REQUIRED = True
 # Реквизиты для оплаты картой (показываются в Mini App).

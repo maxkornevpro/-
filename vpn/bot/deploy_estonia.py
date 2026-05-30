@@ -10,7 +10,7 @@
   5. Создаёт 3 systemd-сервиса (автозапуск + авторестарт):
        - aeroprojectvpn-bot.service       (Telegram-бот-лаунчер)
        - aeroprojectvpn-sub.service        (Subscription API, :8080)
-       - aeroprojectvpn-webapp.service     (Mini App бэкенд, :8090)
+       - aeroprojectvpn-webapp.service     (Mini App бэкенд, :9090)
   6. Перезапускает, проверяет статус и печатает nginx-сниппет для Mini App.
 
 Запуск с машины с доступом в интернет:
@@ -32,7 +32,7 @@ SSH_PORT = 22
 
 REMOTE_DIR = "/opt/aeroprojectvpn/bot"
 PYTHON = "/usr/bin/python3"
-WEBAPP_PORT = 8090
+WEBAPP_PORT = 9090
 WEBAPP_PATH = "/tgapp/"  # путь, по которому nginx отдаёт Mini App
 
 LOCAL_DIR = os.path.dirname(os.path.abspath(__file__))
