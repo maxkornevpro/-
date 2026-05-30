@@ -41,6 +41,7 @@ from services import (
 
 db = Database()
 WEBAPP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webapp")
+WEBAPP_PREFIX = "/tgapp"
 
 _cp = None
 
@@ -352,23 +353,38 @@ def _file(name):
     return handler
 
 
+def _register(app, method, path, handler):
+    app.router.add_route(method, path, handler)
+    if path == "/":
+        app.router.add_route(method, WEBAPP_PREFIX + "/", handler)
+    elif path == "/tgapp":
+        return
+    else:
+        app.router.add_route(method, WEBAPP_PREFIX + path, handler)
+
+
+def redirect_tgapp(request):
+    raise web.HTTPMovedPermanently(location=WEBAPP_PREFIX + "/")
+
+
 def create_app():
     app = web.Application()
-    app.router.add_get("/", _file("index.html"))
-    app.router.add_get("/index.html", _file("index.html"))
-    app.router.add_get("/style.css", _file("style.css"))
-    app.router.add_get("/app.js", _file("app.js"))
+    _register(app, "GET", "/", _file("index.html"))
+    _register(app, "GET", "/index.html", _file("index.html"))
+    _register(app, "GET", "/style.css", _file("style.css"))
+    _register(app, "GET", "/app.js", _file("app.js"))
+    _register(app, "GET", "/tgapp", redirect_tgapp)
 
-    app.router.add_post("/api/state", api_state)
-    app.router.add_post("/api/trial", api_trial)
-    app.router.add_post("/api/buy", api_buy)
-    app.router.add_post("/api/payment-status", api_payment_status)
-    app.router.add_post("/api/renew", api_renew)
-    app.router.add_post("/api/admin/stats", api_admin_stats)
-    app.router.add_post("/api/admin/users", api_admin_users)
-    app.router.add_post("/api/admin/orders", api_admin_orders)
-    app.router.add_post("/api/admin/order-action", api_admin_order_action)
-    app.router.add_post("/api/admin/broadcast", api_admin_broadcast)
+    _register(app, "POST", "/api/state", api_state)
+    _register(app, "POST", "/api/trial", api_trial)
+    _register(app, "POST", "/api/buy", api_buy)
+    _register(app, "POST", "/api/payment-status", api_payment_status)
+    _register(app, "POST", "/api/renew", api_renew)
+    _register(app, "POST", "/api/admin/stats", api_admin_stats)
+    _register(app, "POST", "/api/admin/users", api_admin_users)
+    _register(app, "POST", "/api/admin/orders", api_admin_orders)
+    _register(app, "POST", "/api/admin/order-action", api_admin_order_action)
+    _register(app, "POST", "/api/admin/broadcast", api_admin_broadcast)
     return app
 
 
