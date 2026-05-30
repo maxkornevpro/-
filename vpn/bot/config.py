@@ -33,6 +33,17 @@ VPN_NAME = "AeroProjectVPN"
 VPN_WEB_URL = "https://ee.aeroproject.fun"
 SUBSCRIPTION_BASE_URL = "https://ee.aeroproject.fun"
 
+# ==================== TELEGRAM MINI APP ====================
+# Публичный HTTPS-URL Mini App (отдаётся nginx'ом, проксируется на WEBAPP_PORT).
+WEBAPP_URL = "https://ee.aeroproject.fun/tgapp/"
+# Локальный порт, на котором слушает aiohttp-бэкенд Mini App.
+WEBAPP_PORT = 8090
+# Требовать подписку на канал перед доступом к приложению.
+CHANNEL_REQUIRED = True
+# Реквизиты для оплаты картой (показываются в Mini App).
+CARD_RU = "2204120131636421"
+CARD_UA = ""  # если пусто — кнопка «Карта UA» отправляет к админу за реквизитами
+
 # Pricing
 PRICES = {
     "1_month": 100,

@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
 """
-Деплой бота AeroProjectVPN на сервер Эстония (единственный сервер).
+Деплой AeroProjectVPN (бот + Mini App) на сервер Эстония.
 
 Что делает скрипт:
   1. Подключается к серверу Эстония по SSH.
-  2. ОСТАНАВЛИВАЕТ любой старый бот (старые systemd-сервисы, nohup, screen) —
-     чтобы не было конфликта getUpdates с новым.
-  3. Загружает файлы бота в /opt/aeroprojectvpn/bot.
-  4. Устанавливает зависимости (aiogram, paramiko, requests, aiocryptopay).
-  5. Создаёт systemd-сервисы (автозапуск + авторестарт):
-       - aeroprojectvpn-bot.service       (Telegram-бот)
-       - aeroprojectvpn-sub.service        (Subscription API на :8080)
-  6. Перезапускает сервисы и проверяет, что работает ровно один экземпляр.
+  2. ОСТАНАВЛИВАЕТ любой старый бот/API (systemd, nohup, screen).
+  3. Загружает файлы бота, Mini App-бэкенд и статику Mini App.
+  4. Ставит зависимости (aiogram, aiohttp, paramiko, requests, aiocryptopay).
+  5. Создаёт 3 systemd-сервиса (автозапуск + авторестарт):
+       - aeroprojectvpn-bot.service       (Telegram-бот-лаунчер)
+       - aeroprojectvpn-sub.service        (Subscription API, :8080)
+       - aeroprojectvpn-webapp.service     (Mini App бэкенд, :8090)
+  6. Перезапускает, проверяет статус и печатает nginx-сниппет для Mini App.
 
-Запуск (с локальной машины, где установлен paramiko):
+Запуск с машины с доступом в интернет:
     pip install paramiko
     python3 deploy_estonia.py
-
-ВАЖНО: запускать нужно из окружения с доступом в интернет (SSH к серверу).
 """
 
 import os
@@ -26,7 +24,7 @@ import time
 
 import paramiko
 
-# ==================== НАСТРОЙКИ СЕРВЕРА ЭСТОНИЯ ====================
+# ==================== СЕРВЕР ЭСТОНИЯ ====================
 HOST = "95.85.249.79"
 USER = "root"
 PASSWORD = "FNvhSI1r4VVdbj7G"
@@ -34,31 +32,28 @@ SSH_PORT = 22
 
 REMOTE_DIR = "/opt/aeroprojectvpn/bot"
 PYTHON = "/usr/bin/python3"
-
-# Файлы бота, которые загружаем (берутся из папки рядом со скриптом)
-FILES = [
-    "bot.py",
-    "config.py",
-    "database.py",
-    "vpn_manager.py",
-    "keyboards.py",
-    "panel_3xui.py",
-    "subscription_api.py",
-    "token_crypto.py",
-    "requirements.txt",
-]
+WEBAPP_PORT = 8090
+WEBAPP_PATH = "/tgapp/"  # путь, по которому nginx отдаёт Mini App
 
 LOCAL_DIR = os.path.dirname(os.path.abspath(__file__))
 
+PY_FILES = [
+    "bot.py", "config.py", "database.py", "vpn_manager.py", "panel_3xui.py",
+    "subscription_api.py", "token_crypto.py", "services.py", "webapp_api.py",
+    "requirements.txt",
+]
+WEBAPP_FILES = ["webapp/index.html", "webapp/style.css", "webapp/app.js"]
 
-BOT_SERVICE = f"""[Unit]
-Description=AeroProjectVPN Telegram Bot
+
+def service_unit(desc, exec_target):
+    return f"""[Unit]
+Description={desc}
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory={REMOTE_DIR}
-ExecStart={PYTHON} {REMOTE_DIR}/bot.py
+ExecStart={PYTHON} {REMOTE_DIR}/{exec_target}
 Restart=always
 RestartSec=5
 
@@ -66,101 +61,64 @@ RestartSec=5
 WantedBy=multi-user.target
 """
 
-SUB_SERVICE = f"""[Unit]
-Description=AeroProjectVPN Subscription API
-After=network.target
 
-[Service]
-Type=simple
-WorkingDirectory={REMOTE_DIR}
-ExecStart={PYTHON} {REMOTE_DIR}/subscription_api.py
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-"""
+SERVICES = {
+    "aeroprojectvpn-bot": service_unit("AeroProjectVPN Telegram Bot", "bot.py"),
+    "aeroprojectvpn-sub": service_unit("AeroProjectVPN Subscription API", "subscription_api.py"),
+    "aeroprojectvpn-webapp": service_unit("AeroProjectVPN Mini App backend", "webapp_api.py"),
+}
 
 
-def run(client, cmd, timeout=300, show=True):
-    """Выполнить команду по SSH и вернуть (exit_code, stdout, stderr)."""
+def run(client, cmd, timeout=600, show=True):
     stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-    exit_code = stdout.channel.recv_exit_status()
+    code = stdout.channel.recv_exit_status()
     out = stdout.read().decode(errors="ignore").strip()
     err = stderr.read().decode(errors="ignore").strip()
-    if show:
-        if out:
-            print(out)
-        if err and exit_code != 0:
-            print(f"  ⚠️ {err[:500]}")
-    return exit_code, out, err
+    if show and out:
+        print(out)
+    if show and err and code != 0:
+        print(f"  ⚠️ {err[:500]}")
+    return code, out
 
 
 def write_remote_file(client, path, content):
-    """Записать файл на сервер через heredoc."""
-    safe = content.replace("$", r"\$")
     run(client, f"cat > {path} << 'AERO_EOF'\n{content}\nAERO_EOF", show=False)
 
 
 def stop_old_instances(client):
-    """Вырубить ЛЮБОЙ старый экземпляр бота перед установкой нового.
-
-    Покрывает все варианты запуска:
-      - systemd-сервисы (любые, чей ExecStart запускает bot.py / subscription_api),
-      - процессы nohup / запуск вручную,
-      - сессии screen / tmux.
-    После этого площадка чистая — гарантированно нет конфликта getUpdates.
-    """
-    print("\n🛑 Останавливаю старые экземпляры бота...")
-
-    # 1. Стопаем и выключаем ЛЮБЫЕ systemd-юниты, что крутят наш бот/API.
-    #    Старые юниты (с другим именем) удаляем, наши канонические — оставляем,
-    #    т.к. ниже создадим их заново.
+    print("\n🛑 Останавливаю старые экземпляры...")
     run(
         client,
         r'''
-for unit in $(grep -rlE "bot\.py|subscription_api" /etc/systemd/system/ 2>/dev/null); do
+for unit in $(grep -rlE "bot\.py|subscription_api|webapp_api" /etc/systemd/system/ 2>/dev/null); do
     name=$(basename "$unit")
     echo "  • systemd: $name -> stop + disable"
     systemctl stop "$name" 2>/dev/null
     systemctl disable "$name" 2>/dev/null
-    if [ "$name" != "aeroprojectvpn-bot.service" ] && [ "$name" != "aeroprojectvpn-sub.service" ]; then
-        rm -f "$unit"
-    fi
+    case "$name" in
+        aeroprojectvpn-bot.service|aeroprojectvpn-sub.service|aeroprojectvpn-webapp.service) ;;
+        *) rm -f "$unit" ;;
+    esac
 done
 systemctl daemon-reload 2>/dev/null
 true
 ''',
     )
-
-    # 2. Добиваем процессы (nohup / screen / ручной запуск).
-    run(
-        client,
-        "pkill -9 -f bot.py 2>/dev/null; "
-        "pkill -9 -f subscription_api 2>/dev/null; "
-        "pkill -9 -f 'SCREEN.*bot' 2>/dev/null; true",
-        show=False,
-    )
+    run(client, "pkill -9 -f bot.py 2>/dev/null; pkill -9 -f subscription_api 2>/dev/null; "
+                "pkill -9 -f webapp_api 2>/dev/null; true", show=False)
     time.sleep(2)
-
-    # 3. Контроль: сколько процессов бота осталось (должно быть 0).
-    _, out, _ = run(
-        client,
-        "ps aux | grep -E 'bot\\.py|subscription_api' | grep -v grep | wc -l",
-        show=False,
-    )
-    print(f"  ✅ Старое остановлено. Процессов бота сейчас: {out or '0'}")
+    _, cnt = run(client, "ps aux | grep -E 'bot\\.py|subscription_api|webapp_api' | grep -v grep | wc -l", show=False)
+    print(f"  ✅ Старое остановлено. Процессов: {cnt or '0'}")
 
 
 def main():
-    print(f"🚀 Деплой AeroProjectVPN на Эстонию ({HOST})")
-    print("=" * 50)
-
-    # Проверяем, что все локальные файлы на месте
-    missing = [f for f in FILES if not os.path.isfile(os.path.join(LOCAL_DIR, f))]
+    missing = [f for f in PY_FILES + WEBAPP_FILES if not os.path.isfile(os.path.join(LOCAL_DIR, f))]
     if missing:
-        print(f"❌ Не найдены файлы рядом со скриптом: {missing}")
+        print(f"❌ Не найдены файлы: {missing}")
         sys.exit(1)
+
+    print(f"🚀 Деплой AeroProjectVPN (бот + Mini App) на Эстонию ({HOST})")
+    print("=" * 56)
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -168,103 +126,85 @@ def main():
     client.connect(HOST, port=SSH_PORT, username=USER, password=PASSWORD, timeout=30)
     print("✅ Подключено")
 
-    # 0. Сначала вырубаем старый бот (иначе будет конфликт getUpdates)
     stop_old_instances(client)
 
-    # 1. Создаём директорию
-    print(f"\n📁 Создаю {REMOTE_DIR}...")
-    run(client, f"mkdir -p {REMOTE_DIR}")
+    print(f"\n📁 Готовлю {REMOTE_DIR}...")
+    run(client, f"mkdir -p {REMOTE_DIR}/webapp")
 
-    # 2. Загружаем файлы
-    print("\n📤 Загружаю файлы бота...")
+    print("\n📤 Загружаю файлы...")
     sftp = client.open_sftp()
-    for filename in FILES:
-        local_path = os.path.join(LOCAL_DIR, filename)
-        remote_path = f"{REMOTE_DIR}/{filename}"
+    for filename in PY_FILES + WEBAPP_FILES:
         try:
-            sftp.put(local_path, remote_path)
+            sftp.put(os.path.join(LOCAL_DIR, filename), f"{REMOTE_DIR}/{filename}")
             print(f"  ✅ {filename}")
         except Exception as exc:
             print(f"  ❌ {filename}: {exc}")
     sftp.close()
 
-    # 3. Устанавливаем зависимости
-    print("\n📦 Устанавливаю зависимости (может занять пару минут)...")
-    run(
-        client,
-        f"{PYTHON} -m pip install --break-system-packages --upgrade "
-        f"aiogram paramiko requests aiocryptopay 2>&1 | tail -3",
-        timeout=600,
-    )
+    print("\n📦 Ставлю зависимости (пару минут)...")
+    run(client, f"{PYTHON} -m pip install --break-system-packages --upgrade "
+                f"aiogram aiohttp paramiko requests aiocryptopay 2>&1 | tail -3")
 
-    # 4. Проверяем синтаксис на сервере
     print("\n🧪 Проверка синтаксиса на сервере...")
-    code, out, err = run(
+    code, out = run(
         client,
-        f"cd {REMOTE_DIR} && {PYTHON} -m py_compile bot.py config.py database.py "
-        f"vpn_manager.py keyboards.py panel_3xui.py subscription_api.py token_crypto.py "
-        f"&& echo SYNTAX_OK",
+        f"cd {REMOTE_DIR} && {PYTHON} -m py_compile bot.py config.py database.py vpn_manager.py "
+        f"panel_3xui.py subscription_api.py token_crypto.py services.py webapp_api.py && echo SYNTAX_OK",
     )
     if "SYNTAX_OK" not in out:
-        print("❌ Ошибка синтаксиса на сервере. Останавливаюсь, сервисы не трогаю.")
+        print("❌ Ошибка синтаксиса. Сервисы не трогаю.")
         client.close()
         sys.exit(1)
     print("✅ Синтаксис в порядке")
 
-    # 5. Создаём systemd-сервисы
-    print("\n⚙️  Настраиваю systemd-сервисы...")
-    write_remote_file(client, "/etc/systemd/system/aeroprojectvpn-bot.service", BOT_SERVICE)
-    write_remote_file(client, "/etc/systemd/system/aeroprojectvpn-sub.service", SUB_SERVICE)
+    print("\n⚙️  Создаю systemd-сервисы...")
+    for name, unit in SERVICES.items():
+        write_remote_file(client, f"/etc/systemd/system/{name}.service", unit)
     run(client, "systemctl daemon-reload")
-    run(client, "systemctl enable aeroprojectvpn-bot aeroprojectvpn-sub", show=False)
+    run(client, f"systemctl enable {' '.join(SERVICES)}", show=False)
 
-    # 6. Перезапускаем
-    print("\n🔄 Перезапускаю сервисы...")
-    run(client, "systemctl restart aeroprojectvpn-bot")
-    run(client, "systemctl restart aeroprojectvpn-sub")
-    time.sleep(4)
+    print("\n🔄 Запускаю сервисы...")
+    run(client, f"systemctl restart {' '.join(SERVICES)}")
+    time.sleep(5)
 
-    # 7. Проверяем статус
-    print("\n📊 Статус сервисов:")
-    _, bot_status, _ = run(client, "systemctl is-active aeroprojectvpn-bot", show=False)
-    _, sub_status, _ = run(client, "systemctl is-active aeroprojectvpn-sub", show=False)
-    print(f"  🤖 Бот:              {bot_status}")
-    print(f"  🌐 Subscription API: {sub_status}")
+    print("\n📊 Статус:")
+    all_ok = True
+    for name in SERVICES:
+        _, status = run(client, f"systemctl is-active {name}", show=False)
+        icon = "🟢" if status == "active" else "🔴"
+        print(f"  {icon} {name}: {status}")
+        if status != "active":
+            all_ok = False
+            run(client, f"journalctl -u {name} -n 15 --no-pager")
 
-    # Контроль: ровно один экземпляр бота (иначе снова конфликт getUpdates)
-    _, bot_cnt, _ = run(client, "pgrep -f bot.py | wc -l", show=False)
-    _, sub_cnt, _ = run(client, "pgrep -f subscription_api | wc -l", show=False)
-    print(f"  🔢 Процессов bot.py: {bot_cnt or '0'} | subscription_api: {sub_cnt or '0'}")
-    if (bot_cnt or "0").strip() not in ("1",):
-        print("  ⚠️ Процессов bot.py не ровно 1 — возможен старый экземпляр. Проверь: ps aux | grep bot.py")
-
-    # Проверка логов на конфликт getUpdates
-    _, conflict, _ = run(
-        client,
-        "journalctl -u aeroprojectvpn-bot -n 50 --no-pager 2>/dev/null | grep -ci 'Conflict\\|terminated by other'",
-        show=False,
-    )
-    if (conflict or "0").strip() not in ("0", ""):
-        print("  ⚠️ В логах есть Conflict getUpdates — где-то ещё работает старый бот (возможно на ДРУГОМ сервере!).")
-
-    if bot_status != "active":
-        print("\n⚠️ Логи бота (последние строки):")
-        run(client, "journalctl -u aeroprojectvpn-bot -n 20 --no-pager")
-    if sub_status != "active":
-        print("\n⚠️ Логи API (последние строки):")
-        run(client, "journalctl -u aeroprojectvpn-sub -n 20 --no-pager")
+    _, bot_cnt = run(client, "pgrep -f bot.py | wc -l", show=False)
+    print(f"  🔢 Процессов bot.py: {bot_cnt or '0'} (должно быть 1)")
 
     client.close()
 
-    print("\n" + "=" * 50)
-    if bot_status == "active" and sub_status == "active":
-        print("✅ ГОТОВО! Бот и API запущены на Эстонии.")
+    print("\n" + "=" * 56)
+    if all_ok:
+        print("✅ ГОТОВО! Бот, API и Mini App запущены.")
     else:
-        print("⚠️ Деплой завершён, но какой-то сервис не активен — смотри логи выше.")
-    print("\nПолезные команды на сервере:")
-    print("  systemctl status aeroprojectvpn-bot")
-    print("  journalctl -u aeroprojectvpn-bot -f")
-    print("  systemctl restart aeroprojectvpn-bot")
+        print("⚠️ Какой-то сервис не активен — смотри логи выше.")
+
+    print(f"""
+🔧 ОСТАЛОСЬ ОДНО: отдать Mini App по HTTPS через nginx.
+Добавь в server-блок домена ee.aeroproject.fun (внутри 443) этот location:
+
+    location {WEBAPP_PATH} {{
+        proxy_pass http://127.0.0.1:{WEBAPP_PORT}/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }}
+
+Затем:  nginx -t && systemctl reload nginx
+
+После этого Mini App доступен по: https://ee.aeroproject.fun{WEBAPP_PATH}
+(этот же URL уже прописан в config.WEBAPP_URL — бот откроет его сам).
+
+Проверка: открой бота, /start → «Открыть приложение».
+""")
 
 
 if __name__ == "__main__":
