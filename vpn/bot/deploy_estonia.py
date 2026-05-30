@@ -4,12 +4,14 @@
 
 Что делает скрипт:
   1. Подключается к серверу Эстония по SSH.
-  2. Загружает файлы бота в /opt/aeroprojectvpn/bot.
-  3. Устанавливает зависимости (aiogram, paramiko, requests, aiocryptopay).
-  4. Создаёт systemd-сервисы (автозапуск + авторестарт):
+  2. ОСТАНАВЛИВАЕТ любой старый бот (старые systemd-сервисы, nohup, screen) —
+     чтобы не было конфликта getUpdates с новым.
+  3. Загружает файлы бота в /opt/aeroprojectvpn/bot.
+  4. Устанавливает зависимости (aiogram, paramiko, requests, aiocryptopay).
+  5. Создаёт systemd-сервисы (автозапуск + авторестарт):
        - aeroprojectvpn-bot.service       (Telegram-бот)
        - aeroprojectvpn-sub.service        (Subscription API на :8080)
-  5. Перезапускает сервисы и проверяет статус.
+  6. Перезапускает сервисы и проверяет, что работает ровно один экземпляр.
 
 Запуск (с локальной машины, где установлен paramiko):
     pip install paramiko
@@ -100,6 +102,56 @@ def write_remote_file(client, path, content):
     run(client, f"cat > {path} << 'AERO_EOF'\n{content}\nAERO_EOF", show=False)
 
 
+def stop_old_instances(client):
+    """Вырубить ЛЮБОЙ старый экземпляр бота перед установкой нового.
+
+    Покрывает все варианты запуска:
+      - systemd-сервисы (любые, чей ExecStart запускает bot.py / subscription_api),
+      - процессы nohup / запуск вручную,
+      - сессии screen / tmux.
+    После этого площадка чистая — гарантированно нет конфликта getUpdates.
+    """
+    print("\n🛑 Останавливаю старые экземпляры бота...")
+
+    # 1. Стопаем и выключаем ЛЮБЫЕ systemd-юниты, что крутят наш бот/API.
+    #    Старые юниты (с другим именем) удаляем, наши канонические — оставляем,
+    #    т.к. ниже создадим их заново.
+    run(
+        client,
+        r'''
+for unit in $(grep -rlE "bot\.py|subscription_api" /etc/systemd/system/ 2>/dev/null); do
+    name=$(basename "$unit")
+    echo "  • systemd: $name -> stop + disable"
+    systemctl stop "$name" 2>/dev/null
+    systemctl disable "$name" 2>/dev/null
+    if [ "$name" != "aeroprojectvpn-bot.service" ] && [ "$name" != "aeroprojectvpn-sub.service" ]; then
+        rm -f "$unit"
+    fi
+done
+systemctl daemon-reload 2>/dev/null
+true
+''',
+    )
+
+    # 2. Добиваем процессы (nohup / screen / ручной запуск).
+    run(
+        client,
+        "pkill -9 -f bot.py 2>/dev/null; "
+        "pkill -9 -f subscription_api 2>/dev/null; "
+        "pkill -9 -f 'SCREEN.*bot' 2>/dev/null; true",
+        show=False,
+    )
+    time.sleep(2)
+
+    # 3. Контроль: сколько процессов бота осталось (должно быть 0).
+    _, out, _ = run(
+        client,
+        "ps aux | grep -E 'bot\\.py|subscription_api' | grep -v grep | wc -l",
+        show=False,
+    )
+    print(f"  ✅ Старое остановлено. Процессов бота сейчас: {out or '0'}")
+
+
 def main():
     print(f"🚀 Деплой AeroProjectVPN на Эстонию ({HOST})")
     print("=" * 50)
@@ -115,6 +167,9 @@ def main():
     print("🔌 Подключаюсь по SSH...")
     client.connect(HOST, port=SSH_PORT, username=USER, password=PASSWORD, timeout=30)
     print("✅ Подключено")
+
+    # 0. Сначала вырубаем старый бот (иначе будет конфликт getUpdates)
+    stop_old_instances(client)
 
     # 1. Создаём директорию
     print(f"\n📁 Создаю {REMOTE_DIR}...")
@@ -175,6 +230,22 @@ def main():
     _, sub_status, _ = run(client, "systemctl is-active aeroprojectvpn-sub", show=False)
     print(f"  🤖 Бот:              {bot_status}")
     print(f"  🌐 Subscription API: {sub_status}")
+
+    # Контроль: ровно один экземпляр бота (иначе снова конфликт getUpdates)
+    _, bot_cnt, _ = run(client, "pgrep -f bot.py | wc -l", show=False)
+    _, sub_cnt, _ = run(client, "pgrep -f subscription_api | wc -l", show=False)
+    print(f"  🔢 Процессов bot.py: {bot_cnt or '0'} | subscription_api: {sub_cnt or '0'}")
+    if (bot_cnt or "0").strip() not in ("1",):
+        print("  ⚠️ Процессов bot.py не ровно 1 — возможен старый экземпляр. Проверь: ps aux | grep bot.py")
+
+    # Проверка логов на конфликт getUpdates
+    _, conflict, _ = run(
+        client,
+        "journalctl -u aeroprojectvpn-bot -n 50 --no-pager 2>/dev/null | grep -ci 'Conflict\\|terminated by other'",
+        show=False,
+    )
+    if (conflict or "0").strip() not in ("0", ""):
+        print("  ⚠️ В логах есть Conflict getUpdates — где-то ещё работает старый бот (возможно на ДРУГОМ сервере!).")
 
     if bot_status != "active":
         print("\n⚠️ Логи бота (последние строки):")
