@@ -74,6 +74,13 @@ DEVICE_PACK_PRICE = 99
 # Database
 DB_FILE = os.path.join(os.path.dirname(__file__), "vpn_bot.db")
 
+# ==================== БЕЗОПАСНОСТЬ ====================
+# Принимать старые (XOR, подделываемые) токены ссылок подписки.
+# Держите True, пока часть пользователей не переоткрыла приложение и не
+# забрала новую безопасную ссылку. Поставьте False, чтобы полностью закрыть
+# возможность подделки/перебора ссылок /sub/ /app/ /config/.
+ALLOW_LEGACY_TOKENS = True
+
 # CryptoBot
 CRYPTO_BOT_TOKEN = "561879:AAGlQg1ZepeCv70Q9CSqr73tbK2Or0289Uv"
 

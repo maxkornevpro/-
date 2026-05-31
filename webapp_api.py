@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import functools
 import os
+import time
+from collections import defaultdict, deque
 
 from aiohttp import web
 
@@ -458,6 +460,74 @@ async def api_admin_broadcast(request):
     return web.json_response({"ok": True, "sent": sent, "total": len(user_ids)})
 
 
+# ==================== БЕЗОПАСНОСТЬ (rate-limit + заголовки) ====================
+
+# Лимиты «запросов за окно (сек)» по типам путей. Память — в процессе
+# (webapp_api один процесс), чего достаточно против накрутки и перебора.
+_RL_BUCKETS = defaultdict(deque)
+
+
+def _client_ip(request):
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.headers.get("X-Real-IP") or (request.remote or "?")
+
+
+def _rl_rule(path):
+    if path.startswith("/api/admin/"):
+        return ("admin", 40, 60)
+    if path in ("/api/trial", "/api/buy", "/api/payment-status", "/api/renew"):
+        return ("sensitive", 20, 60)
+    if path.startswith("/api/"):
+        return ("api", 120, 60)
+    return None
+
+
+@web.middleware
+async def rate_limit_mw(request, handler):
+    rule = _rl_rule(request.path)
+    if rule:
+        bucket, limit, window = rule
+        key = (_client_ip(request), bucket)
+        now = time.monotonic()
+        dq = _RL_BUCKETS[key]
+        while dq and now - dq[0] > window:
+            dq.popleft()
+        if len(dq) >= limit:
+            return web.json_response(
+                {"ok": False, "error": "Слишком много запросов, попробуйте позже"},
+                status=429,
+            )
+        dq.append(now)
+        if len(_RL_BUCKETS) > 5000:      # защита от роста словаря
+            _RL_BUCKETS.clear()
+    return await handler(request)
+
+
+def _apply_security_headers(resp, request):
+    h = resp.headers
+    h["X-Content-Type-Options"] = "nosniff"
+    h["Referrer-Policy"] = "no-referrer"
+    h["X-Robots-Tag"] = "noindex, nofollow"
+    # Mini App открывается внутри Telegram (в т.ч. в iframe на web.telegram.org).
+    h["Content-Security-Policy"] = "frame-ancestors https://web.telegram.org https://*.telegram.org"
+    h["Server"] = "aeroproject"
+    if request.path.startswith("/api/"):
+        h["Cache-Control"] = "no-store"
+
+
+@web.middleware
+async def security_headers_mw(request, handler):
+    try:
+        resp = await handler(request)
+    except web.HTTPException as ex:
+        _apply_security_headers(ex, request)
+        raise
+    _apply_security_headers(resp, request)
+    return resp
+
+
 # ==================== СТАТИКА ====================
 
 def _file(name):
@@ -481,7 +551,7 @@ def redirect_tgapp(request):
 
 
 def create_app():
-    app = web.Application()
+    app = web.Application(middlewares=[security_headers_mw, rate_limit_mw])
     _register(app, "GET", "/", _file("index.html"))
     _register(app, "GET", "/index.html", _file("index.html"))
     _register(app, "GET", "/style.css", _file("style.css"))

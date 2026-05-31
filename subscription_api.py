@@ -10,6 +10,8 @@ import json
 import copy
 import base64
 import html
+import time
+from collections import defaultdict, deque
 from pathlib import Path
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -29,6 +31,33 @@ from config import (
     VPS2_SHORT_ID,
 )
 from token_crypto import decrypt_token, encrypt_user_id
+
+
+# ==================== RATE-LIMIT (защита от перебора токенов) ====================
+# Журнал доступа выключен в log_message, поэтому ограничиваем частоту сами.
+_RL_HITS = defaultdict(deque)
+_RL_LIMIT = 120          # запросов
+_RL_WINDOW = 60          # за столько секунд с одного IP
+
+
+def _rl_client_ip(handler):
+    xff = handler.headers.get('X-Forwarded-For')
+    if xff:
+        return xff.split(',')[0].strip()
+    return handler.headers.get('X-Real-IP') or handler.client_address[0]
+
+
+def _rl_allow(ip):
+    now = time.monotonic()
+    dq = _RL_HITS[ip]
+    while dq and now - dq[0] > _RL_WINDOW:
+        dq.popleft()
+    if len(dq) >= _RL_LIMIT:
+        return False
+    dq.append(now)
+    if len(_RL_HITS) > 5000:
+        _RL_HITS.clear()
+    return True
 
 
 # Server configurations - Estonia only
@@ -976,15 +1005,23 @@ class SubHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+    def _sec_headers(self):
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('X-Robots-Tag', 'noindex, nofollow')
+        self.send_header('Server', 'aeroproject')
+
     def _send_json(self, status, data):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
+        self._sec_headers()
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
 
     def _send_text(self, status, text, headers=None):
         self.send_response(status)
         self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self._sec_headers()
         if headers:
             for k, v in headers.items():
                 self.send_header(k, v)
@@ -994,6 +1031,7 @@ class SubHandler(BaseHTTPRequestHandler):
     def _send_html(self, status, html):
         self.send_response(status)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self._sec_headers()
         self.end_headers()
         self.wfile.write(html.encode())
 
@@ -1014,6 +1052,10 @@ class SubHandler(BaseHTTPRequestHandler):
         return any(marker in user_agent for marker in browser_markers) and not any(marker in user_agent for marker in client_markers)
 
     def do_HEAD(self):
+        if not _rl_allow(_rl_client_ip(self)):
+            self.send_response(429)
+            self.end_headers()
+            return
         parsed = urlparse(self.path)
         path = parsed.path
 
@@ -1109,6 +1151,9 @@ class SubHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if not _rl_allow(_rl_client_ip(self)):
+            self._send_text(429, "Too many requests")
+            return
         parsed = urlparse(self.path)
         path = parsed.path
 
