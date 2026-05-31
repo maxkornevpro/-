@@ -3,6 +3,7 @@
 AeroProjectVPN — одна команда для полного деплоя на сервер Эстония.
 
     python run.py          # убить старый бот + залить новый + запустить ВСЁ
+    python run.py all       # то же самое (полный деплой)
     python run.py kill      # только убить старый бот на сервере (без деплоя)
 
 Скрипт сам ставит paramiko (нужен для SSH). Пароль уже зашит в
@@ -33,8 +34,10 @@ def ensure_paramiko():
 
 def main():
     arg = sys.argv[1].lower() if len(sys.argv) > 1 else "deploy"
+    if arg == "all":
+        arg = "deploy"
     if arg not in ("deploy", "kill"):
-        sys.exit("Использование: python run.py [deploy|kill]")
+        sys.exit("Использование: python run.py [all|deploy|kill]")
 
     if not os.path.isfile(os.path.join(BOT_DIR, "deploy_estonia.py")):
         sys.exit("❌ Не найден vpn/bot/deploy_estonia.py.\n"

@@ -148,8 +148,10 @@ true
 
 def main():
     mode = sys.argv[1].lower() if len(sys.argv) > 1 else "deploy"
+    if mode == "all":
+        mode = "deploy"
     if mode not in ("deploy", "kill"):
-        sys.exit("Использование: python3 deploy_estonia.py [deploy|kill]")
+        sys.exit("Использование: python3 deploy_estonia.py [all|deploy|kill]")
 
     if mode == "deploy":
         missing = [f for f in PY_FILES + WEBAPP_FILES if not os.path.isfile(os.path.join(LOCAL_DIR, f))]
