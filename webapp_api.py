@@ -131,6 +131,16 @@ async def api_buy(request):
         price = DEVICE_PACK_PRICE
     else:
         price = PRICES.get(plan)
+        # Подписку нельзя купить повторно, пока активна и осталось больше 1 дня.
+        sub_state = build_subscription_state(db, uid)
+        if not services.can_buy_subscription(sub_state):
+            if sub_state.get("forever"):
+                return err("У вас бессрочная подписка — продлевать не нужно.")
+            dl = sub_state.get("days_left")
+            return err(
+                f"Продлить можно, когда останется 1 день или меньше. "
+                f"Сейчас осталось {dl} дн."
+            )
     if not price:
         return err("Неизвестный тариф")
 

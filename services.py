@@ -357,6 +357,21 @@ def build_subscription_state(db, user_id: int) -> dict:
     }
 
 
+def can_buy_subscription(sub_state: dict) -> bool:
+    """Можно ли купить/продлить подписку прямо сейчас.
+
+    Правило: пока подписка активна и до конца больше 1 дня — повторная
+    покупка закрыта. Открывается, когда остался 1 день или меньше (или
+    подписки нет / она истекла). Бессрочную подписку продлевать не нужно.
+    """
+    if not sub_state.get("has_key") or sub_state.get("status") == "expired":
+        return True
+    if sub_state.get("forever"):
+        return False
+    days_left = sub_state.get("days_left")
+    return days_left is None or days_left <= 1
+
+
 def build_admin_user_detail(db, user_id: int) -> Optional[dict]:
     """Детальная карточка пользователя для админ-панели."""
     row = db.get_user(user_id)
@@ -390,6 +405,9 @@ def build_state(db, user: dict) -> dict:
     referral_count = db.get_referral_count(user_id)
     blocked = db.is_user_blocked(user_id)
 
+    sub_state = build_subscription_state(db, user_id)
+    can_buy = can_buy_subscription(sub_state)
+
     tariffs = [
         {
             "plan": key,
@@ -416,7 +434,8 @@ def build_state(db, user: dict) -> dict:
         "blocked": blocked,
         "needs_channel": (not blocked) and (not check_channel_membership(user_id)),
         "channel": {"username": CHANNEL_USERNAME.lstrip("@"), "title": CHANNEL_USERNAME},
-        "subscription": build_subscription_state(db, user_id),
+        "subscription": sub_state,
+        "can_buy_subscription": can_buy,
         "wallet": {"balance": balance["balance"], "bonus_hours": balance["bonus_hours"]},
         "referral": {
             "count": referral_count,

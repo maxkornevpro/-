@@ -122,15 +122,29 @@
   function renderTariffs() {
     const box = $("tariffs");
     box.innerHTML = "";
+    const locked = STATE.can_buy_subscription === false;
+    const sub = STATE.subscription || {};
+
+    if (locked) {
+      const note = document.createElement("div");
+      note.className = "tariff-lock";
+      note.innerHTML = icon("clock") + "<span>" + (sub.forever
+        ? "У вас бессрочная подписка — продлевать не нужно."
+        : "Продление откроется, когда останется 1 день. Сейчас активна ещё " + sub.days_left + " дн.") + "</span>";
+      box.appendChild(note);
+    }
+
     STATE.tariffs.forEach((t) => {
       const el = document.createElement("div");
-      el.className = "tariff" + (t.plan === "6_months" ? " best" : "");
+      el.className = "tariff" + (t.plan === "6_months" ? " best" : "") + (locked ? " locked" : "");
       el.innerHTML =
         (t.badge ? '<span class="badge">' + esc(t.badge) + "</span>" : "") +
         '<div><div class="tariff-name">' + esc(t.title) + "</div>" +
         '<div class="tariff-sub">примерно ' + t.per_month + " ₽ в месяц</div></div>" +
         '<div class="tariff-price">' + t.price + "₽<small>" + t.days + " дней</small></div>";
-      el.onclick = () => openPaySheet(t);
+      el.onclick = locked
+        ? () => { haptic(); toast(sub.forever ? "Подписка бессрочная" : "Продление пока недоступно"); }
+        : () => openPaySheet(t);
       box.appendChild(el);
     });
   }

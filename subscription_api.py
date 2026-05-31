@@ -854,7 +854,11 @@ def build_app_links_page(token):
         },
     ]
 
-    def render_platform_section(title, apps):
+    icon_shield = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 19 6v5c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/></svg>'
+    icon_mobile = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>'
+    icon_laptop = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="11" rx="2"/><path d="M2 19h20"/></svg>'
+
+    def render_platform_section(title, apps, icon_svg=""):
         cards = []
         for app in apps:
             cards.append(
@@ -865,7 +869,7 @@ def build_app_links_page(token):
 </div>"""
             )
         return f"""<section class="platform">
-  <h2>{html.escape(title)}</h2>
+  <div class="platform-head">{icon_svg}<h2>{html.escape(title)}</h2></div>
   <div class="apps">{''.join(cards)}</div>
 </section>"""
 
@@ -873,131 +877,96 @@ def build_app_links_page(token):
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Добавить подписку</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Подключение — {html.escape(VPN_NAME)}</title>
   <style>
+    :root {{
+      --bg:#141a22;--surface:#1b232e;--surface2:#222c39;--border:rgba(255,255,255,.08);
+      --text:#e7ecf2;--muted:#8f9bac;--accent:#5c8bbf;--accent-deep:#4a76a6;
+      --accent-soft:rgba(92,139,191,.12);--code:#10151c;
+    }}
+    *{{box-sizing:border-box}}
     body {{
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0b1220;
-      color: #f3f4f6;
-      display: flex;
-      justify-content: center;
-      padding: 24px;
+      margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      background:var(--bg);color:var(--text);line-height:1.5;
+      display:flex;justify-content:center;padding:22px 18px 40px;
     }}
-    .card {{
-      width: 100%;
-      max-width: 520px;
-      background: #111827;
-      border: 1px solid #1f2937;
-      border-radius: 20px;
-      padding: 24px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
-    }}
-    h1 {{
-      margin: 0 0 12px;
-      font-size: 28px;
-    }}
-    h2 {{
-      margin: 22px 0 12px;
-      font-size: 20px;
-    }}
-    p {{
-      margin: 0 0 18px;
-      color: #cbd5e1;
-      line-height: 1.5;
-    }}
-    .apps {{
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-    }}
-    .app-card {{
-      background: #0f172a;
-      border: 1px solid #1e293b;
-      border-radius: 16px;
-      padding: 14px;
-    }}
-    .app-title {{
-      font-size: 18px;
-      font-weight: 700;
-      margin-bottom: 6px;
-    }}
-    .app-subtitle {{
-      color: #cbd5e1;
-      font-size: 14px;
-      line-height: 1.45;
-      margin-bottom: 12px;
-    }}
-    .actions {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-    }}
+    .wrap{{width:100%;max-width:540px}}
+    .head{{display:flex;align-items:center;gap:12px;margin-bottom:18px}}
+    .logo{{width:44px;height:44px;border-radius:12px;background:var(--accent-deep);
+      display:flex;align-items:center;justify-content:center;color:#fff;flex:none}}
+    .logo svg{{width:24px;height:24px}}
+    .head h1{{font-size:18px;margin:0}}
+    .head .sub{{font-size:12px;color:var(--muted);margin-top:2px}}
+    .intro{{color:var(--muted);font-size:14px;margin:0 0 18px}}
+    .linkcard{{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:24px}}
+    .label{{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}}
+    .mono{{background:var(--code);border:1px solid var(--border);border-radius:11px;padding:12px;
+      font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#bcd0e3;word-break:break-all}}
+    .platform{{margin-bottom:22px}}
+    .platform-head{{display:flex;align-items:center;gap:8px;color:var(--accent);margin:0 0 12px}}
+    .platform-head svg{{width:20px;height:20px;flex:none}}
+    .platform-head h2{{font-size:15px;margin:0;color:var(--text)}}
+    .apps{{display:grid;gap:10px}}
+    .app-card{{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px}}
+    .app-title{{font-size:16px;font-weight:700;margin-bottom:4px}}
+    .app-subtitle{{color:var(--muted);font-size:13px;margin-bottom:12px}}
+    .actions{{display:flex;flex-wrap:wrap;gap:8px}}
     .btn {{
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 52px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      background: #1f2937;
-      color: #f9fafb;
-      text-decoration: none;
-      border: 1px solid #374151;
-      font-weight: 600;
-      cursor: pointer;
+      display:inline-flex;align-items:center;justify-content:center;min-height:46px;
+      padding:10px 16px;border-radius:11px;background:var(--surface2);color:var(--text);
+      text-decoration:none;border:1px solid var(--border);font-weight:600;font-size:14px;
+      cursor:pointer;flex:1;min-width:120px
     }}
-    button.btn {{
-      font: inherit;
-    }}
-    .primary {{
-      background: #2563eb;
-      border-color: #2563eb;
-    }}
-    .secondary {{
-      margin-top: 10px;
-      background: #0f172a;
-    }}
-    .note {{
-      font-size: 14px;
-      color: #94a3b8;
-      margin-top: 8px;
-    }}
-    .mono {{
-      word-break: break-all;
-      background: #0f172a;
-      border: 1px solid #1e293b;
-      border-radius: 12px;
-      padding: 12px;
-      font-size: 13px;
-      color: #cbd5e1;
-      margin-top: 12px;
-    }}
+    button.btn{{font:inherit}}
+    .btn.primary{{background:var(--accent-deep);border-color:var(--accent-deep);color:#fff}}
+    .btn:active{{transform:scale(.99)}}
+    .copy-row{{margin-top:12px}}
+    .copy-row .btn{{width:100%}}
+    .note{{font-size:13px;color:var(--muted);margin-top:14px}}
+    .toast{{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);
+      background:#252e3b;border:1px solid var(--border);color:var(--text);padding:11px 18px;
+      border-radius:12px;font-size:14px;font-weight:600;opacity:0;transition:.3s;pointer-events:none}}
+    .toast.show{{opacity:1;transform:translateX(-50%) translateY(0)}}
   </style>
   <script>
     function copyText(value) {{
-      if (navigator.clipboard && navigator.clipboard.writeText) {{
-        navigator.clipboard.writeText(value).then(function() {{
-          alert('Ссылка скопирована. Открой Happ и вставь ее как подписку.');
-        }});
-        return;
+      function done() {{
+        var t = document.getElementById('toast');
+        t.textContent = 'Ссылка скопирована — вставьте её в приложении';
+        t.classList.add('show');
+        setTimeout(function() {{ t.classList.remove('show'); }}, 2400);
       }}
-      alert(value);
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        navigator.clipboard.writeText(value).then(done).catch(function() {{ prompt('Скопируйте ссылку:', value); }});
+      }} else {{
+        prompt('Скопируйте ссылку:', value);
+      }}
     }}
   </script>
 </head>
 <body>
-  <div class="card">
-    <h1>Добавить подписку</h1>
-    <p>Выбери приложение под свою платформу. Где deeplink поддерживается, импорт откроется сразу. Где его нет, кнопка скопирует ссылку для вставки внутри приложения.</p>
-    {render_platform_section('Android', android_apps)}
-    {render_platform_section('iPhone / iPad', ios_apps)}
-    {render_platform_section('ПК: Windows / macOS / Linux', desktop_apps)}
-    <a class="btn secondary" href="{html.escape(subscription_url, quote=True)}">Открыть прямую подписку</a>
-    <button class="btn secondary" type="button" onclick="copyText('{html.escape(subscription_url)}')">Скопировать подписку</button>
-    <p class="note">Для Happ кнопка использует скрытую ссылку, если сервис шифрования доступен. Иначе копируется прямая ссылка подписки.</p>
-    <div class="mono">{html.escape(subscription_url)}</div>
+  <div class="wrap">
+    <div class="head">
+      <div class="logo">{icon_shield}</div>
+      <div><h1>{html.escape(VPN_NAME)}</h1><div class="sub">Подключение устройства</div></div>
+    </div>
+    <p class="intro">Выберите своё приложение — где поддерживается, подписка добавится в один тап. Если кнопка «Открыть» не сработала, нажмите «Скопировать» и вставьте ссылку в приложении вручную.</p>
+
+    <div class="linkcard">
+      <div class="label">Ваша ссылка подписки</div>
+      <div class="mono">{html.escape(subscription_url)}</div>
+      <div class="copy-row">
+        <button class="btn primary" type="button" onclick="copyText('{html.escape(subscription_url)}')">Скопировать ссылку</button>
+      </div>
+    </div>
+
+    {render_platform_section('Android', android_apps, icon_mobile)}
+    {render_platform_section('iPhone / iPad', ios_apps, icon_mobile)}
+    {render_platform_section('Компьютер — Windows / macOS / Linux', desktop_apps, icon_laptop)}
+
+    <p class="note">Проще всего на телефоне — приложение Happ. Установите его, вернитесь сюда и нажмите «Открыть».</p>
+    <div id="toast" class="toast"></div>
   </div>
 </body>
 </html>"""

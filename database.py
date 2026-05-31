@@ -396,15 +396,24 @@ class Database:
     
     def get_stats(self):
         stats = {}
+        now = datetime.now()
         self.cursor.execute("SELECT COUNT(*) FROM users")
         stats['total_users'] = self.cursor.fetchone()[0]
-        
-        self.cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE is_active = 1")
+
+        # Активные подписки = пользователи, у кого срок ещё не истёк.
+        self.cursor.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM subscriptions WHERE is_active = 1 AND end_date > ?",
+            (now,)
+        )
         stats['active_subs'] = self.cursor.fetchone()[0]
-        
-        self.cursor.execute("SELECT COUNT(*) FROM vpn_keys WHERE is_active = 1")
+
+        # Активные ключи = включённые и не истёкшие.
+        self.cursor.execute(
+            "SELECT COUNT(*) FROM vpn_keys WHERE is_active = 1 AND (expires_at > ? OR expires_at IS NULL)",
+            (now,)
+        )
         stats['active_keys'] = self.cursor.fetchone()[0]
-        
+
         return stats
     
     def close(self):
