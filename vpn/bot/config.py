@@ -31,11 +31,17 @@ VPS2_3XUI_PASSWORD = "AeroEE_3xUi!2026"
 # Branding
 VPN_NAME = "AeroProjectVPN"
 VPN_WEB_URL = "https://ee.aeroproject.fun"
-SUBSCRIPTION_BASE_URL = "https://ee.aeroproject.fun:9091"
+# Публичные URL отдаются через nginx на 443 (валидный SSL от certbot),
+# а nginx проксирует пути на локальные HTTP-бэкенды:
+#   /sub/, /api/sub/, /config/  ->  127.0.0.1:9091  (subscription_api)
+#   /tgapp/                     ->  127.0.0.1:9090  (webapp_api, Mini App)
+# Поэтому в публичных URL НЕ должно быть портов 9090/9091 — это локальные
+# HTTP-порты без TLS, и Telegram Mini App по ним не откроется.
+SUBSCRIPTION_BASE_URL = "https://ee.aeroproject.fun"
 
 # ==================== TELEGRAM MINI APP ====================
 # Публичный HTTPS-URL Mini App (отдаётся nginx'ом, проксируется на WEBAPP_PORT).
-WEBAPP_URL = "https://ee.aeroproject.fun:9090/tgapp/"
+WEBAPP_URL = "https://ee.aeroproject.fun/tgapp/"
 # Локальный порт, на котором слушает aiohttp-бэкенд Mini App.
 # 9091 занят subscription_api, поэтому Mini App — на 9090.
 WEBAPP_PORT = 9090
