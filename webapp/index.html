@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>AeroProject VPN</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Загрузка -->
+  <div id="loader" class="loader">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- Экран «открой из Telegram» -->
+  <div id="gate" class="gate hidden">
+    <div class="gate-card">
+      <div class="logo-badge">A</div>
+      <h2>AeroProject VPN</h2>
+      <p id="gate-text">Открой приложение через Telegram-бота.</p>
+      <a id="gate-btn" class="btn btn-primary hidden" href="#">Подписаться на канал</a>
+    </div>
+  </div>
+
+  <!-- Основной интерфейс -->
+  <main id="app" class="app hidden">
+
+    <!-- Шапка -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo-badge">A</div>
+        <div>
+          <div class="brand-name">AeroProject<span>VPN</span></div>
+          <div class="brand-sub">🇪🇪 Эстония · без логов</div>
+        </div>
+      </div>
+      <div id="avatar" class="avatar"></div>
+    </header>
+
+    <!-- ===== Вкладка: Главная ===== -->
+    <section id="tab-home" class="tab active">
+      <div id="status-card" class="hero">
+        <div class="hero-ring">
+          <svg viewBox="0 0 120 120" class="ring">
+            <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+            <circle id="ring-fg" class="ring-fg" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <div class="ring-center">
+            <div id="ring-value" class="ring-value">—</div>
+            <div class="ring-label">осталось</div>
+          </div>
+        </div>
+        <div class="hero-info">
+          <span id="status-pill" class="pill">Нет подписки</span>
+          <div id="status-expires" class="hero-expires"></div>
+          <button id="hero-action" class="btn btn-primary">Загрузка…</button>
+        </div>
+      </div>
+
+      <!-- Подключённые устройства -->
+      <div class="section-title">Устройства</div>
+      <div id="devices-card" class="card devices-card">
+        <div class="dev-top">
+          <div class="dev-icon">📱</div>
+          <div class="dev-meta">
+            <div id="dev-count" class="dev-count">— / —</div>
+            <div id="dev-status" class="dev-status muted">Загрузка…</div>
+          </div>
+          <button id="dev-refresh" class="dev-refresh" title="Обновить">↻</button>
+        </div>
+        <div class="dev-bar"><div id="dev-bar-fill" class="dev-bar-fill"></div></div>
+        <button id="dev-buy" class="btn btn-soft dev-buy">➕ Докупить устройства</button>
+      </div>
+
+      <div class="section-title">Тарифы</div>
+      <div id="tariffs" class="tariffs"></div>
+
+      <div class="features">
+        <div class="feature"><span>🛡️</span><div><b>Без логов</b><small>трафик никто не пишет</small></div></div>
+        <div class="feature"><span>⚡️</span><div><b>Скорость</b><small>VLESS-Reality, без тормозов</small></div></div>
+        <div class="feature"><span>👻</span><div><b>Обход DPI</b><small>выглядит как обычный сайт</small></div></div>
+        <div class="feature"><span>♾️</span><div><b>Безлимит</b><small>без ограничений трафика</small></div></div>
+      </div>
+    </section>
+
+    <!-- ===== Вкладка: Ключ ===== -->
+    <section id="tab-key" class="tab">
+      <div class="section-title">Подключение</div>
+      <div id="key-empty" class="empty hidden">
+        <div class="empty-emoji">🔑</div>
+        <p>Здесь появится ваша ссылка после активации подписки.</p>
+      </div>
+      <div id="key-box" class="card hidden">
+        <div class="card-label">Ссылка подписки</div>
+        <div id="sub-link" class="codebox" tabindex="0"></div>
+        <div class="row">
+          <button id="copy-link" class="btn btn-soft">Скопировать</button>
+          <button id="connect-link" class="btn btn-primary">Подключить</button>
+        </div>
+      </div>
+      <div class="card steps">
+        <div class="card-label">Как подключить</div>
+        <ol>
+          <li>Установи <b>Happ</b> (iOS/Android) или <b>v2rayNG</b>.</li>
+          <li>Скопируй ссылку выше.</li>
+          <li>В приложении: «Добавить подписку» → вставь ссылку.</li>
+          <li>Выбери сервер 🇪🇪 и жми «Подключить».</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ===== Вкладка: Рефералы ===== -->
+    <section id="tab-ref" class="tab">
+      <div class="section-title">Приглашай друзей</div>
+      <div class="ref-stats">
+        <div class="stat"><div id="ref-count" class="stat-num">0</div><div class="stat-cap">друзей</div></div>
+        <div class="stat"><div id="ref-hours" class="stat-num">0</div><div class="stat-cap">бонус-часов</div></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Твоя ссылка</div>
+        <div id="ref-link" class="codebox"></div>
+        <div class="row">
+          <button id="ref-copy" class="btn btn-soft">Скопировать</button>
+          <button id="ref-share" class="btn btn-primary">Поделиться</button>
+        </div>
+      </div>
+      <div class="card reward">
+        <div><b>+6 часов</b> за каждого друга</div>
+        <div><b>+2%</b> с каждой его покупки</div>
+      </div>
+    </section>
+
+    <!-- ===== Вкладка: Админ ===== -->
+    <section id="tab-admin" class="tab">
+      <div class="section-title">Админ-панель</div>
+      <div id="admin-stats" class="admin-grid"></div>
+
+      <div class="card">
+        <div class="card-label">Заказы на подтверждение</div>
+        <div id="admin-orders" class="orders"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Рассылка всем</div>
+        <textarea id="bc-text" class="textarea" placeholder="Текст сообщения…"></textarea>
+        <button id="bc-send" class="btn btn-primary">Отправить</button>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Последние пользователи</div>
+        <div id="admin-users" class="users"></div>
+      </div>
+    </section>
+
+    <div class="bottom-pad"></div>
+  </main>
+
+  <!-- Нижняя навигация -->
+  <nav id="tabbar" class="tabbar hidden">
+    <button class="tabbtn active" data-tab="home"><span>🏠</span>Главная</button>
+    <button class="tabbtn" data-tab="key"><span>🔑</span>Ключ</button>
+    <button class="tabbtn" data-tab="ref"><span>🎁</span>Друзья</button>
+    <button class="tabbtn admin-only hidden" data-tab="admin"><span>🛠️</span>Админ</button>
+  </nav>
+
+  <!-- Шторка оплаты -->
+  <div id="sheet" class="sheet hidden">
+    <div class="sheet-backdrop"></div>
+    <div class="sheet-body">
+      <div class="sheet-handle"></div>
+      <div id="sheet-content"></div>
+    </div>
+  </div>
+
+  <!-- Тост -->
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
