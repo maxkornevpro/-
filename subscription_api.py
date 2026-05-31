@@ -746,19 +746,21 @@ def build_app_links_page(token):
     encoded_subscription_url = quote(subscription_url, safe='')
     encoded_shadowrocket_url = base64.b64encode(subscription_url.encode('utf-8')).decode('ascii')
     happ_crypto_link = fetch_happ_crypto_link(subscription_url)
-    happ_primary_action = (
-        build_link_button('Открыть', happ_crypto_link, 'btn primary')
-        if happ_crypto_link else
-        build_copy_button('Скопировать ссылку', subscription_url, 'btn primary')
-    )
+    # Надёжный импорт в Happ: основной способ — «крипто»-ссылка happ://crypt…
+    # (если сервис доступен), запасной — стандартный deeplink happ://add/<base64>,
+    # который работает без внешнего сервиса. Плюс всегда есть кнопка «Скопировать».
+    happ_b64 = base64.b64encode(subscription_url.encode('utf-8')).decode('ascii')
+    happ_open_link = happ_crypto_link or f"happ://add/{happ_b64}"
+    happ_primary_action = build_link_button('Открыть в Happ', happ_open_link, 'btn primary')
 
     android_apps = [
         {
             'title': 'Happ',
             'badge': 'Рекомендуем',
-            'subtitle': 'Самый простой способ: нажмите «Открыть» — подписка добавится автоматически.',
+            'subtitle': 'Самый простой способ: нажмите «Открыть в Happ» — подписка добавится сама. Нет приложения — сначала «Установить».',
             'actions': [
                 happ_primary_action,
+                build_copy_button('Скопировать ссылку', subscription_url),
                 build_link_button('Установить', 'https://play.google.com/store/apps/details?id=com.happproxy'),
             ],
         },
@@ -799,9 +801,10 @@ def build_app_links_page(token):
         {
             'title': 'Happ',
             'badge': 'Рекомендуем',
-            'subtitle': 'Нажмите «Открыть» — подписка добавится автоматически.',
+            'subtitle': 'Нажмите «Открыть в Happ» — подписка добавится сама. Нет приложения — сначала «Установить».',
             'actions': [
                 happ_primary_action,
+                build_copy_button('Скопировать ссылку', subscription_url),
                 build_link_button('Установить', 'https://apps.apple.com/app/happ-proxy-utility/id6504287215'),
             ],
         },

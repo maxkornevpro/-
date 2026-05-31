@@ -35,6 +35,7 @@ from config import (
     PRICES,
     SUBSCRIPTION_BASE_URL,
     TRIAL_DAYS,
+    TRIAL_TRAFFIC_GB,
     VPN_NAME,
 )
 from token_crypto import encrypt_user_id
@@ -185,14 +186,18 @@ def get_referral_link(user_id: int) -> str:
 
 # ==================== ВЫДАЧА КЛЮЧА (блокирующее, SSH) ====================
 
-def issue_key(db, user_id: int, days: Optional[int]) -> dict:
-    """Создать VLESS-ключ на Эстонии и сохранить в БД. Блокирующая операция (SSH)."""
+def issue_key(db, user_id: int, days: Optional[int], traffic_gb: int = 0) -> dict:
+    """Создать VLESS-ключ на Эстонии и сохранить в БД. Блокирующая операция (SSH).
+
+    traffic_gb — лимит трафика, ГБ (0 = безлимит). Для пробного периода
+    передаём TRIAL_TRAFFIC_GB, для платных тарифов — 0.
+    """
     from vpn_manager import VPNManager  # локальный импорт: paramiko нужен только тут
 
     device_limit = db.get_device_limit(user_id)
 
     vpn = VPNManager()
-    key_data = vpn.generate_vpn_key(user_id, days=days, device_limit=device_limit)
+    key_data = vpn.generate_vpn_key(user_id, days=days, device_limit=device_limit, traffic_gb=traffic_gb)
     db.add_vpn_key(
         user_id=user_id,
         uuid=key_data["uuid"],
@@ -240,9 +245,11 @@ def extend_or_issue_key(db, user_id: int, days: Optional[int]) -> dict:
     device_limit = db.get_device_limit(user_id)
 
     # 1) Обновляем срок на 3x-ui-панели (тот же клиент: ключ не перевыпускаем).
+    #    total_gb=0 — снимаем лимит трафика: любой платный/выданный период = безлимит
+    #    (если до этого был активен пробный с лимитом 50 ГБ, он снимается).
     try:
         from vpn_manager import VPNManager
-        VPNManager().set_key_expiry(uuid_val, email, new_expiry, device_limit)
+        VPNManager().set_key_expiry(uuid_val, email, new_expiry, device_limit, total_gb=0)
     except Exception as exc:
         print(f"extend_or_issue_key: panel expiry update failed: {exc}")
 
@@ -479,6 +486,7 @@ def build_state(db, user: dict) -> dict:
         },
         "trial_available": (not db.has_used_trial(user_id)) and (db.get_active_subscription(user_id) is None),
         "trial_days": TRIAL_DAYS,
+        "trial_traffic_gb": TRIAL_TRAFFIC_GB,
         "payment": {
             "crypto_enabled": True,
             "card_ru": CARD_RU,

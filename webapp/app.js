@@ -105,7 +105,9 @@
       btn.className = "btn btn-primary";
       btn.onclick = () => { haptic(); scrollToTariffs(); };
     } else if (STATE.trial_available) {
-      btn.innerHTML = icon("gift") + " Попробовать бесплатно · " + STATE.trial_days + " дн.";
+      var trialTxt = "Попробовать бесплатно · " + STATE.trial_days + " дн.";
+      if (STATE.trial_traffic_gb) trialTxt += " / " + STATE.trial_traffic_gb + " ГБ";
+      btn.innerHTML = icon("gift") + " " + trialTxt;
       btn.className = "btn btn-primary";
       btn.onclick = doTrial;
     } else {

@@ -91,7 +91,7 @@ class VPNManager:
         finally:
             client.close()
 
-    def _add_client_via_best_method(self, user_uuid, email, days, limit_ip=0):
+    def _add_client_via_best_method(self, user_uuid, email, days, limit_ip=0, traffic_gb=0):
         """Add a client to Estonia via 3x-ui API, fall back to SSH config edit."""
         try:
             panel = get_estonia_panel()
@@ -100,7 +100,7 @@ class VPNManager:
                     email=email,
                     client_id=user_uuid,
                     expiry_days=days or 0,
-                    traffic_gb=0,
+                    traffic_gb=traffic_gb or 0,
                     limit_ip=limit_ip or 0,
                 )
                 if result:
@@ -111,7 +111,7 @@ class VPNManager:
         fallback = VPNManager(host=VPS2_HOST, port=VPS2_PORT, user=VPS2_USER, password=VPS2_PASSWORD)
         return fallback.add_user_to_server(user_uuid, VPS2_SHORT_ID)
 
-    def generate_vpn_key(self, user_id, days=None, use_3xui=True, device_limit=0):
+    def generate_vpn_key(self, user_id, days=None, use_3xui=True, device_limit=0, traffic_gb=0):
         user_uuid = str(uuid.uuid4())
         short_id = VPS2_SHORT_ID
         email = f"user_{user_id}_{uuid.uuid4().hex[:8]}@aeroprojectvpn.com"
@@ -123,6 +123,7 @@ class VPNManager:
             email=email,
             days=days,
             limit_ip=device_limit or 0,
+            traffic_gb=traffic_gb or 0,
         )
 
         if not estonia_ok:
@@ -260,12 +261,14 @@ class VPNManager:
             print(f"set_device_limit error: {exc}")
             return False
 
-    def set_key_expiry(self, client_id: str, email: str, expires_at, device_limit: int = 0) -> bool:
+    def set_key_expiry(self, client_id: str, email: str, expires_at, device_limit: int = 0, total_gb=None) -> bool:
         """Обновить дату окончания клиента в 3x-ui (продление без перевыпуска ключа).
 
         expires_at — datetime или None (None -> expiryTime=0, т.е. бессрочно).
+        total_gb — лимит трафика, ГБ: None = сохранить текущий, 0 = безлимит,
+        N = N ГБ. При оплате передаём 0 (снимаем лимит триала).
         Лимит устройств и enable сохраняем (enable=True — на случай, если ключ
-        был отключён панелью по истечению срока, продление снова включает его).
+        был отключён панелью по истечению срока/трафика, продление снова включает).
         """
         if not client_id or not email:
             return False
@@ -275,12 +278,16 @@ class VPNManager:
                 return False
             current = panel.get_client(email) or {}
             expiry_ms = int(expires_at.timestamp() * 1000) if expires_at else 0
+            if total_gb is None:
+                total_bytes = int(current.get("total") or 0)
+            else:
+                total_bytes = int(total_gb) * 1024 * 1024 * 1024
             return panel.update_client(
                 client_id=client_id,
                 email=email,
                 limit_ip=int(device_limit or 0),
                 expiry_time=expiry_ms,
-                total_bytes=int(current.get("total") or 0),
+                total_bytes=total_bytes,
                 enable=True,
             )
         except Exception as exc:

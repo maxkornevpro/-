@@ -30,6 +30,7 @@ from config import (
     DEVICE_PACK_SIZE,
     PRICES,
     TRIAL_DAYS,
+    TRIAL_TRAFFIC_GB,
     VPN_NAME,
     WEBAPP_PORT,
 )
@@ -108,7 +109,7 @@ async def api_trial(request):
 
     db.set_trial_used(uid)
     try:
-        await run_blocking(issue_key, db, uid, TRIAL_DAYS)
+        await run_blocking(issue_key, db, uid, TRIAL_DAYS, TRIAL_TRAFFIC_GB)
     except Exception:
         return err("Сервер сейчас недоступен, попробуйте через минуту", 503)
 
