@@ -34,11 +34,19 @@ from config import (
     CHANNEL_ID,
     CHANNEL_REQUIRED,
     CHANNEL_USERNAME,
+    DEVICE_PACK_SIZE,
     VPN_NAME,
     WEBAPP_URL,
 )
 from database import Database
-from services import PLAN_DAYS, PLAN_TITLE, issue_key
+from services import (
+    PLAN_DAYS,
+    PLAN_TITLE,
+    apply_device_limit,
+    extend_or_issue_key,
+    is_devices_plan,
+    issue_key,
+)
 from token_crypto import decrypt_token
 
 logging.basicConfig(level=logging.INFO)
@@ -131,10 +139,8 @@ async def confirm_pay(callback: CallbackQuery):
         return
 
     uid, plan, price = order[1], order[3], order[4]
-    days = PLAN_DAYS.get(plan, 30)
 
     db.mark_order_paid(order_id)
-    db.add_subscription(uid, plan, price, days)
 
     user_row = db.get_user(uid)
     if user_row and user_row[6]:  # referrer cashback
@@ -144,10 +150,34 @@ async def confirm_pay(callback: CallbackQuery):
         except Exception:
             pass
 
+    # Докупка устройств — увеличиваем лимит, ключ не перевыпускаем.
+    if is_devices_plan(plan):
+        new_limit = db.add_device_slots(uid, DEVICE_PACK_SIZE)
+        try:
+            await asyncio.to_thread(apply_device_limit, db, uid)
+        except Exception as exc:
+            logger.error(f"apply_device_limit failed: {exc}")
+        try:
+            await bot.send_message(
+                uid,
+                f"✅ Оплата подтверждена! Лимит устройств теперь <b>{new_limit}</b> 📱",
+                reply_markup=open_app_kb(),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
+        await callback.message.edit_text(f"✅ Заказ #{order_id} подтверждён (+{DEVICE_PACK_SIZE} устройств).")
+        return
+
+    days = PLAN_DAYS.get(plan, 30)
+    db.add_subscription(uid, plan, price, days)
+
     try:
-        await asyncio.to_thread(issue_key, db, uid, days)
+        # Продлеваем срок активного ключа (прибавляем дни), а не перевыпускаем —
+        # иначе при активном пробном тарифе оплаченные дни «не добавлялись».
+        await asyncio.to_thread(extend_or_issue_key, db, uid, days)
     except Exception as exc:
-        logger.error(f"issue_key failed: {exc}")
+        logger.error(f"extend_or_issue_key failed: {exc}")
         await callback.answer("Ошибка выдачи ключа", show_alert=True)
         return
 

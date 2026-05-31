@@ -31,13 +31,19 @@ VPS2_3XUI_PASSWORD = "AeroEE_3xUi!2026"
 # Branding
 VPN_NAME = "AeroProjectVPN"
 VPN_WEB_URL = "https://ee.aeroproject.fun"
+# Публичные URL отдаются через nginx на 443 (валидный SSL от certbot),
+# а nginx проксирует пути на локальные HTTP-бэкенды:
+#   /sub/, /api/sub/, /config/  ->  127.0.0.1:9091  (subscription_api)
+#   /tgapp/                     ->  127.0.0.1:9090  (webapp_api, Mini App)
+# Поэтому в публичных URL НЕ должно быть портов 9090/9091 — это локальные
+# HTTP-порты без TLS, и Telegram Mini App по ним не откроется.
 SUBSCRIPTION_BASE_URL = "https://ee.aeroproject.fun"
 
 # ==================== TELEGRAM MINI APP ====================
 # Публичный HTTPS-URL Mini App (отдаётся nginx'ом, проксируется на WEBAPP_PORT).
 WEBAPP_URL = "https://ee.aeroproject.fun/tgapp/"
 # Локальный порт, на котором слушает aiohttp-бэкенд Mini App.
-# 8080 занят subscription_api, поэтому Mini App — на 9090.
+# 9091 занят subscription_api, поэтому Mini App — на 9090.
 WEBAPP_PORT = 9090
 # Требовать подписку на канал перед доступом к приложению.
 CHANNEL_REQUIRED = True
@@ -45,15 +51,25 @@ CHANNEL_REQUIRED = True
 CARD_RU = "2204120131636421"
 CARD_UA = ""  # если пусто — кнопка «Карта UA» отправляет к админу за реквизитами
 
-# Pricing
+# Pricing (RUB). Сервер стоит ~180₽/мес — тарифы выстроены так, чтобы
+# даже один платящий пользователь окупал содержание, а длинные планы
+# давали скидку за мес. и стимулировали предоплату.
 PRICES = {
-    "1_month": 100,
-    "6_months": 225,
-    "1_year": 400,
+    "1_month": 149,
+    "3_months": 399,
+    "6_months": 699,
+    "1_year": 1190,
 }
 
 # Trial settings
 TRIAL_DAYS = 1
+
+# ==================== УСТРОЙСТВА (одновременные подключения) ====================
+# Сколько устройств можно подключить по одной подписке по умолчанию.
+DEVICE_LIMIT_DEFAULT = 2
+# Размер одного пакета докупки устройств и его цена (RUB).
+DEVICE_PACK_SIZE = 10
+DEVICE_PACK_PRICE = 99
 
 # Database
 DB_FILE = os.path.join(os.path.dirname(__file__), "vpn_bot.db")

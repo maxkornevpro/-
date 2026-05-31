@@ -5,6 +5,7 @@
   const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   let STATE = null;
   let pollTimer = null;
+  let currentPay = null;
 
   // ---------- helpers ----------
   const $ = (id) => document.getElementById(id);
@@ -164,11 +165,50 @@
     document.querySelectorAll(".admin-only").forEach((e) => e.classList.toggle("hidden", !STATE.is_admin));
   }
 
+  // ---------- devices ----------
+  function renderDevices() {
+    const d = STATE.devices || {};
+    const limit = d.limit || 0;
+    const used = typeof d.used === "number" ? d.used : 0;
+    $("dev-count").textContent = (d.has_key ? used : 0) + " / " + limit;
+
+    let status;
+    if (!d.has_key) status = "Лимит активируется с подпиской";
+    else if (d.online) status = "🟢 Сейчас онлайн · " + used + " из " + limit;
+    else status = "Подключено устройств: " + used + " из " + limit;
+    $("dev-status").textContent = status;
+
+    const pct = limit ? Math.max(6, Math.min(100, Math.round((used / limit) * 100))) : 0;
+    $("dev-bar-fill").style.width = pct + "%";
+    $("dev-bar-fill").classList.toggle("full", limit && used >= limit);
+
+    const price = d.pack_price || 0;
+    const size = d.pack_size || 10;
+    $("dev-buy").textContent = "➕ Докупить +" + size + " устройств · " + price + "₽";
+    $("dev-buy").onclick = () => openPaySheet({
+      plan: "devices_10",
+      title: "+" + size + " устройств",
+      price: price,
+      _devices: true,
+    });
+    $("dev-refresh").onclick = () => { haptic(); loadDevices(true); };
+  }
+
+  async function loadDevices(spin) {
+    if (spin) $("dev-status").textContent = "Обновляем…";
+    const res = await api("api/devices");
+    if (res && res.ok && res.devices) {
+      STATE.devices = Object.assign({}, STATE.devices, res.devices);
+      renderDevices();
+    }
+  }
+
   function renderAll() {
     if (STATE.user && STATE.user.photo_url) {
       $("avatar").style.backgroundImage = "url(" + STATE.user.photo_url + ")";
     }
     renderHero();
+    renderDevices();
     renderTariffs();
     renderKey();
     renderRef();
@@ -194,6 +234,7 @@
 
   function openPaySheet(t) {
     haptic();
+    currentPay = t;
     const p = STATE.payment;
     const methods = [];
     if (p.crypto_enabled) methods.push({ m: "crypto", ico: "crypto", icon: "🪙", label: "Криптовалюта (CryptoBot)" });
@@ -264,11 +305,21 @@
     if (res.ok && res.status === "paid") {
       stopPolling();
       notify("success");
-      STATE.subscription = res.subscription;
-      renderAll();
+      const isDevices = currentPay && currentPay._devices;
+      if (res.subscription) STATE.subscription = res.subscription;
       closeSheet();
-      toast("Оплачено! Подписка активна ✅");
-      setTab("key");
+      if (isDevices) {
+        // Лимит устройств изменился — подтягиваем свежее состояние.
+        const fresh = await api("api/state");
+        if (fresh && fresh.ok) STATE = fresh;
+        renderAll();
+        loadDevices(true);
+        toast("Готово! Устройства добавлены ✅");
+      } else {
+        renderAll();
+        toast("Оплачено! Подписка активна ✅");
+        setTab("key");
+      }
     } else if (manual) {
       toast("Оплата ещё не пришла");
     }
@@ -352,7 +403,7 @@
   async function init() {
     if (tg) {
       tg.ready(); tg.expand();
-      try { tg.setHeaderColor("#0b0d17"); tg.setBackgroundColor("#0b0d17"); } catch (e) {}
+      try { tg.setHeaderColor("#141a22"); tg.setBackgroundColor("#141a22"); } catch (e) {}
       tg.BackButton.onClick(() => setTab("home"));
     }
 
@@ -391,11 +442,12 @@
 
     renderAll();
     showApp();
+    loadDevices();
   }
 
   async function reloadState() {
     const data = await api("api/state");
-    if (data.ok && !data.needs_channel && !data.blocked) { STATE = data; renderAll(); showApp(); }
+    if (data.ok && !data.needs_channel && !data.blocked) { STATE = data; renderAll(); showApp(); loadDevices(); }
   }
 
   document.addEventListener("DOMContentLoaded", init);

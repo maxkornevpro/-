@@ -80,7 +80,7 @@ class X3UIPanel:
                 return inbound
         return None
 
-    def add_client(self, email: str, client_id: str, expiry_days: int = 30, traffic_gb: int = 0) -> dict[str, Any] | None:
+    def add_client(self, email: str, client_id: str, expiry_days: int = 30, traffic_gb: int = 0, limit_ip: int = 0) -> dict[str, Any] | None:
         inbound = self.get_vless_inbound()
         if not inbound:
             print(f"No VLESS inbound found on {self.host}")
@@ -103,7 +103,7 @@ class X3UIPanel:
                             "id": client_id,
                             "flow": "xtls-rprx-vision",
                             "email": email,
-                            "limitIp": 0,
+                            "limitIp": int(limit_ip or 0),
                             "totalGB": total_bytes,
                             "expiryTime": expiry_time,
                             "enable": True,
@@ -127,6 +127,130 @@ class X3UIPanel:
         except Exception as exc:
             print(f"Add client error on {self.host}: {exc}")
             return None
+
+    def get_client(self, email: str) -> dict[str, Any] | None:
+        """Карточка клиента по email (up/down/expiryTime/enable/lastOnline)."""
+        try:
+            response = self.session.get(
+                f"{self.base_url}/panel/api/inbounds/getClientTraffics/{email}", timeout=20
+            )
+            if response.status_code != 200:
+                return None
+            data = response.json()
+            if not data.get("success"):
+                return None
+            return data.get("obj")
+        except Exception as exc:
+            print(f"Get client error on {self.host}: {exc}")
+            return None
+
+    def update_client(self, client_id: str, email: str, limit_ip: int,
+                      expiry_time: int = 0, total_bytes: int = 0, enable: bool = True) -> bool:
+        """Изменить параметры клиента (используется для смены лимита устройств)."""
+        inbound = self.get_vless_inbound()
+        if not inbound:
+            return False
+        payload = {
+            "id": inbound["id"],
+            "settings": json.dumps(
+                {
+                    "clients": [
+                        {
+                            "id": client_id,
+                            "flow": "xtls-rprx-vision",
+                            "email": email,
+                            "limitIp": int(limit_ip or 0),
+                            "totalGB": int(total_bytes or 0),
+                            "expiryTime": int(expiry_time or 0),
+                            "enable": bool(enable),
+                            "tgId": "",
+                            "subId": "",
+                            "reset": 0,
+                        }
+                    ]
+                },
+                separators=(",", ":"),
+            ),
+        }
+        try:
+            response = self._request_with_fallback(
+                f"/panel/api/inbounds/updateClient/{client_id}", payload
+            )
+            return bool(response.json().get("success"))
+        except Exception as exc:
+            print(f"Update client error on {self.host}: {exc}")
+            return False
+
+    def get_online_emails(self) -> list[str]:
+        """Список email'ов, у которых прямо сейчас есть активные подключения."""
+        try:
+            response = self.session.post(f"{self.base_url}/panel/api/inbounds/onlines", timeout=15)
+            if response.status_code != 200:
+                return []
+            data = response.json()
+            obj = data.get("obj") or []
+            if not isinstance(obj, list):
+                return []
+            emails: list[str] = []
+            for item in obj:
+                if isinstance(item, str):
+                    emails.append(item)
+                elif isinstance(item, dict):
+                    # На случай, если панель отдаёт объекты, а не строки.
+                    em = item.get("email") or item.get("Email")
+                    if em:
+                        emails.append(str(em))
+            return emails
+        except Exception as exc:
+            print(f"Onlines error on {self.host}: {exc}")
+            return []
+
+    def get_client_ips(self, email: str) -> list[str]:
+        """IP-адреса (устройства) клиента из журнала 3x-ui. Пусто, если записей нет.
+
+        Возвращает список РАЗЛИЧНЫХ IP. Если в панели выключен лог IP —
+        эндпоинт отдаёт "No IP Record", и список будет пустым.
+        """
+        try:
+            response = self.session.post(
+                f"{self.base_url}/panel/api/inbounds/clientIps/{email}", timeout=15
+            )
+            if response.status_code != 200:
+                return []
+            obj = response.json().get("obj")
+            if not obj or obj == "No IP Record":
+                return []
+
+            raw: list[str] = []
+            if isinstance(obj, list):
+                raw = [str(x) for x in obj]
+            elif isinstance(obj, str):
+                # Иногда приходит JSON-строкой ('["1.2.3.4","5.6.7.8"]')
+                # либо просто строкой с разделителями.
+                text = obj.strip()
+                parsed = None
+                if text.startswith("["):
+                    try:
+                        parsed = json.loads(text)
+                    except Exception:
+                        parsed = None
+                if isinstance(parsed, list):
+                    raw = [str(x) for x in parsed]
+                else:
+                    raw = [p.strip() for p in text.replace("\n", ",").split(",")]
+
+            # Чистим и убираем дубликаты, сохраняя порядок.
+            seen: set[str] = set()
+            ips: list[str] = []
+            for ip in raw:
+                ip = ip.strip().strip('"').strip("[]").strip()
+                if ip and ip not in seen:
+                    seen.add(ip)
+                    ips.append(ip)
+            return ips
+        except Exception as exc:
+            print(f"Client IPs error on {self.host}: {exc}")
+            return []
 
     def get_client_link(self, client_id: str, email: str, domain: str, port: int = 8443) -> str | None:
         inbound = self.get_vless_inbound(preferred_port=port)
