@@ -8,8 +8,10 @@ set -euo pipefail
 BOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$BOT_DIR"
 
-echo "⬇️  git pull..."
-git pull --ff-only
+echo "⬇️  Забираю свежий код из ветки release..."
+git fetch origin release
+git reset --hard origin/release
+git clean -fd -e vpn_bot.db    # убрать лишнее, базу не трогаем
 
 # если venv есть — доустановим возможные новые зависимости
 if [ -x "$BOT_DIR/.venv/bin/python" ]; then
