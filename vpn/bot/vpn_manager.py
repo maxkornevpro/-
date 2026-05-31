@@ -2,8 +2,6 @@ import json
 import uuid
 from datetime import datetime, timedelta
 
-import paramiko
-
 from config import (
     VPN_NAME,
     VPS2_DOMAIN,
@@ -27,6 +25,10 @@ class VPNManager:
         self.password = password or VPS2_PASSWORD
 
     def _connect(self):
+        # Ленивый импорт: paramiko нужен только для SSH-фолбэка,
+        # обычная выдача ключей идёт через 3x-ui панель (по HTTP).
+        import paramiko
+
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(self.host, username=self.user, password=self.password, timeout=30)
