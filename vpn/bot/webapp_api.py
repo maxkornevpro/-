@@ -21,6 +21,8 @@ from config import (
     ADMIN_IDS,
     ADMIN_USERNAME,
     CRYPTO_BOT_TOKEN,
+    DEVICE_PACK_PRICE,
+    DEVICE_PACK_SIZE,
     PRICES,
     TRIAL_DAYS,
     VPN_NAME,
@@ -29,11 +31,16 @@ from config import (
 from database import Database
 import services
 from services import (
+    DEVICES_PLAN,
     PLAN_DAYS,
     PLAN_TITLE,
+    apply_device_limit,
+    build_devices_state,
     build_state,
     build_subscription_state,
+    extend_or_issue_key,
     is_admin,
+    is_devices_plan,
     issue_key,
     tg_send_message,
     validate_init_data,
@@ -41,6 +48,7 @@ from services import (
 
 db = Database()
 WEBAPP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webapp")
+WEBAPP_PREFIX = "/tgapp"
 
 _cp = None
 
@@ -117,7 +125,12 @@ async def api_buy(request):
     plan = body.get("plan")
     method = body.get("method")
 
-    price = PRICES.get(plan)
+    # Докупка устройств — отдельный «товар» с фикс. ценой, не из PRICES.
+    if is_devices_plan(plan):
+        plan = DEVICES_PLAN
+        price = DEVICE_PACK_PRICE
+    else:
+        price = PRICES.get(plan)
     if not price:
         return err("Неизвестный тариф")
 
@@ -209,12 +222,10 @@ async def api_payment_status(request):
 
 
 async def _grant_paid_order(order):
-    """Отметить заказ оплаченным, начислить кэшбэк рефереру и выдать ключ."""
+    """Отметить заказ оплаченным, начислить кэшбэк рефереру и выдать товар."""
     order_id, uid, _username, plan, price = order[0], order[1], order[2], order[3], order[4]
-    days = PLAN_DAYS.get(plan, 30)
 
     db.mark_order_paid(order_id)
-    db.add_subscription(uid, plan, price, days)
 
     user_row = db.get_user(uid)
     if user_row and user_row[6]:  # referrer_id
@@ -222,8 +233,29 @@ async def _grant_paid_order(order):
         tg_send_message(user_row[6],
                         f"🎉 Реферальный кэшбэк: <b>+{cashback}₽</b> на баланс!")
 
-    await run_blocking(issue_key, db, uid, days)
+    # Докупка устройств: увеличиваем лимит и применяем к активному ключу.
+    if is_devices_plan(plan):
+        new_limit = db.add_device_slots(uid, DEVICE_PACK_SIZE)
+        await run_blocking(apply_device_limit, db, uid)
+        tg_send_message(uid, f"✅ Оплата получена! Лимит устройств теперь <b>{new_limit}</b> 📱")
+        return
+
+    days = PLAN_DAYS.get(plan, 30)
+    db.add_subscription(uid, plan, price, days)
+    # Продлеваем срок активного ключа (или выдаём новый, если ключа ещё нет),
+    # а не перевыпускаем — иначе оплаченные дни «не доходят» до пользователя.
+    await run_blocking(extend_or_issue_key, db, uid, days)
     tg_send_message(uid, f"✅ Оплата получена! Подписка <b>{PLAN_TITLE.get(plan, plan)}</b> активна 🇪🇪")
+
+
+async def api_devices(request):
+    """Живой статус устройств (обращается к 3x-ui)."""
+    user = auth_user(request)
+    if not user:
+        return err("auth", 401)
+    uid = int(user["id"])
+    state = await run_blocking(build_devices_state, db, uid)
+    return web.json_response({"ok": True, "devices": state})
 
 
 async def api_renew(request):
@@ -239,7 +271,7 @@ async def api_renew(request):
     days = TRIAL_DAYS if plan == "trial" else PLAN_DAYS.get(plan, 30)
 
     try:
-        await run_blocking(issue_key, db, uid, days)
+        await run_blocking(extend_or_issue_key, db, uid, days)
     except Exception:
         return err("Сервер недоступен, попробуйте позже", 503)
 
@@ -352,23 +384,39 @@ def _file(name):
     return handler
 
 
+def _register(app, method, path, handler):
+    app.router.add_route(method, path, handler)
+    if path == "/":
+        app.router.add_route(method, WEBAPP_PREFIX + "/", handler)
+    elif path == "/tgapp":
+        return
+    else:
+        app.router.add_route(method, WEBAPP_PREFIX + path, handler)
+
+
+def redirect_tgapp(request):
+    raise web.HTTPMovedPermanently(location=WEBAPP_PREFIX + "/")
+
+
 def create_app():
     app = web.Application()
-    app.router.add_get("/", _file("index.html"))
-    app.router.add_get("/index.html", _file("index.html"))
-    app.router.add_get("/style.css", _file("style.css"))
-    app.router.add_get("/app.js", _file("app.js"))
+    _register(app, "GET", "/", _file("index.html"))
+    _register(app, "GET", "/index.html", _file("index.html"))
+    _register(app, "GET", "/style.css", _file("style.css"))
+    _register(app, "GET", "/app.js", _file("app.js"))
+    _register(app, "GET", "/tgapp", redirect_tgapp)
 
-    app.router.add_post("/api/state", api_state)
-    app.router.add_post("/api/trial", api_trial)
-    app.router.add_post("/api/buy", api_buy)
-    app.router.add_post("/api/payment-status", api_payment_status)
-    app.router.add_post("/api/renew", api_renew)
-    app.router.add_post("/api/admin/stats", api_admin_stats)
-    app.router.add_post("/api/admin/users", api_admin_users)
-    app.router.add_post("/api/admin/orders", api_admin_orders)
-    app.router.add_post("/api/admin/order-action", api_admin_order_action)
-    app.router.add_post("/api/admin/broadcast", api_admin_broadcast)
+    _register(app, "POST", "/api/state", api_state)
+    _register(app, "POST", "/api/trial", api_trial)
+    _register(app, "POST", "/api/buy", api_buy)
+    _register(app, "POST", "/api/payment-status", api_payment_status)
+    _register(app, "POST", "/api/devices", api_devices)
+    _register(app, "POST", "/api/renew", api_renew)
+    _register(app, "POST", "/api/admin/stats", api_admin_stats)
+    _register(app, "POST", "/api/admin/users", api_admin_users)
+    _register(app, "POST", "/api/admin/orders", api_admin_orders)
+    _register(app, "POST", "/api/admin/order-action", api_admin_order_action)
+    _register(app, "POST", "/api/admin/broadcast", api_admin_broadcast)
     return app
 
 

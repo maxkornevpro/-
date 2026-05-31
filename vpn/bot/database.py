@@ -1,7 +1,7 @@
 import sqlite3
 import json
 from datetime import datetime, timedelta
-from config import DB_FILE
+from config import DB_FILE, DEVICE_LIMIT_DEFAULT
 
 class Database:
     def __init__(self):
@@ -31,9 +31,10 @@ class Database:
                 referrer_id INTEGER,
                 balance INTEGER DEFAULT 0,
                 bonus_hours INTEGER DEFAULT 0,
+                device_limit INTEGER DEFAULT {default_devices},
                 FOREIGN KEY (referrer_id) REFERENCES users(user_id)
             )
-        """)
+        """.format(default_devices=DEVICE_LIMIT_DEFAULT))
         self.conn.commit()
         
         # Subscriptions table
@@ -65,6 +66,7 @@ class Database:
                 is_active INTEGER DEFAULT 1,
                 vless_link TEXT,
                 server TEXT DEFAULT 'estonia',
+                email TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
         """)
@@ -93,6 +95,7 @@ class Database:
         self._ensure_column("users", "referrer_id", "INTEGER")
         self._ensure_column("users", "balance", "INTEGER DEFAULT 0")
         self._ensure_column("users", "bonus_hours", "INTEGER DEFAULT 0")
+        self._ensure_column("users", "device_limit", f"INTEGER DEFAULT {DEVICE_LIMIT_DEFAULT}")
 
         self._ensure_column("subscriptions", "is_active", "INTEGER DEFAULT 1")
 
@@ -101,6 +104,7 @@ class Database:
         self._ensure_column("vpn_keys", "is_active", "INTEGER DEFAULT 1")
         self._ensure_column("vpn_keys", "vless_link", "TEXT")
         self._ensure_column("vpn_keys", "server", "TEXT DEFAULT 'estonia'")
+        self._ensure_column("vpn_keys", "email", "TEXT")
 
         self._ensure_column("orders", "invoice_id", "INTEGER")
         self._ensure_column("orders", "paid_at", "TIMESTAMP")
@@ -160,14 +164,32 @@ class Database:
         )
         return self.cursor.fetchone()
     
-    def add_vpn_key(self, user_id, uuid, public_key, private_key, short_id, expires_at, vless_link, server='estonia'):
+    def add_vpn_key(self, user_id, uuid, public_key, private_key, short_id, expires_at, vless_link, server='estonia', email=None):
         self.cursor.execute(
-            """INSERT INTO vpn_keys (user_id, uuid, public_key, private_key, short_id, expires_at, vless_link, server)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, uuid, public_key, private_key, short_id, expires_at, vless_link, server)
+            """INSERT INTO vpn_keys (user_id, uuid, public_key, private_key, short_id, expires_at, vless_link, server, email)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, uuid, public_key, private_key, short_id, expires_at, vless_link, server, email)
         )
         self.conn.commit()
         return self.cursor.lastrowid
+
+    def get_active_key(self, user_id):
+        """Самый свежий активный ключ пользователя (или None)."""
+        self.cursor.execute(
+            """SELECT * FROM vpn_keys WHERE user_id = ? AND is_active = 1
+               AND (expires_at > ? OR expires_at IS NULL)
+               ORDER BY id DESC LIMIT 1""",
+            (user_id, datetime.now())
+        )
+        return self.cursor.fetchone()
+
+    def get_active_key_email(self, user_id):
+        """Email активного ключа (нужен для 3x-ui: счётчик устройств / лимиты)."""
+        row = self.get_active_key(user_id)
+        if not row:
+            return None
+        # email — последняя добавленная колонка vpn_keys
+        return row[-1]
     
     def get_user_keys(self, user_id):
         self.cursor.execute(
@@ -191,6 +213,17 @@ class Database:
         self.cursor.execute(
             "UPDATE vpn_keys SET is_active = 0 WHERE id = ?",
             (key_id,)
+        )
+        self.conn.commit()
+
+    def update_key_expiry(self, key_id, expires_at):
+        """Обновить дату окончания ключа (используется при продлении оплатой).
+
+        expires_at — datetime или None (None = бессрочно).
+        """
+        self.cursor.execute(
+            "UPDATE vpn_keys SET expires_at = ? WHERE id = ?",
+            (expires_at, key_id)
         )
         self.conn.commit()
     
@@ -310,6 +343,30 @@ class Database:
         )
         self.conn.commit()
         return self.cursor.rowcount > 0
+
+    # ==================== УСТРОЙСТВА ====================
+
+    def get_device_limit(self, user_id):
+        """Сколько устройств разрешено пользователю (одновременных подключений)."""
+        self.cursor.execute("SELECT device_limit FROM users WHERE user_id = ?", (user_id,))
+        result = self.cursor.fetchone()
+        if not result or result[0] is None:
+            return DEVICE_LIMIT_DEFAULT
+        return int(result[0])
+
+    def add_device_slots(self, user_id, count):
+        """Докупить устройства: увеличить лимит на count. Возвращает новый лимит."""
+        # На случай, если строки пользователя ещё нет — создаём с дефолтом.
+        self.cursor.execute(
+            "INSERT OR IGNORE INTO users (user_id, device_limit) VALUES (?, ?)",
+            (user_id, DEVICE_LIMIT_DEFAULT)
+        )
+        self.cursor.execute(
+            "UPDATE users SET device_limit = COALESCE(device_limit, ?) + ? WHERE user_id = ?",
+            (DEVICE_LIMIT_DEFAULT, count, user_id)
+        )
+        self.conn.commit()
+        return self.get_device_limit(user_id)
     
     # ==================== ADMIN/STATS ====================
     

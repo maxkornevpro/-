@@ -14,7 +14,7 @@ import json
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from config import (
@@ -26,6 +26,9 @@ from config import (
     CHANNEL_ID,
     CHANNEL_REQUIRED,
     CHANNEL_USERNAME,
+    DEVICE_LIMIT_DEFAULT,
+    DEVICE_PACK_PRICE,
+    DEVICE_PACK_SIZE,
     PRICES,
     SUBSCRIPTION_BASE_URL,
     TRIAL_DAYS,
@@ -35,14 +38,32 @@ from token_crypto import encrypt_user_id
 
 PLAN_DAYS = {
     "1_month": 30,
+    "3_months": 90,
     "6_months": 180,
     "1_year": 365,
 }
 PLAN_TITLE = {
     "1_month": "1 месяц",
+    "3_months": "3 месяца",
     "6_months": "6 месяцев",
     "1_year": "1 год",
 }
+
+# Порядок и акценты тарифов в Mini App.
+PLAN_ORDER = ("1_month", "3_months", "6_months", "1_year")
+PLAN_BADGE = {
+    "3_months": "Старт",
+    "6_months": "Хит",
+    "1_year": "Выгодно",
+}
+
+# Идентификатор «товара» докупки устройств в заказах.
+DEVICES_PLAN = "devices_10"
+PLAN_TITLE[DEVICES_PLAN] = f"+{DEVICE_PACK_SIZE} устройств"
+
+
+def is_devices_plan(plan: Optional[str]) -> bool:
+    return bool(plan) and str(plan).startswith("devices")
 
 
 # ==================== БЕЗОПАСНОСТЬ: ВАЛИДАЦИЯ initData ====================
@@ -155,8 +176,10 @@ def issue_key(db, user_id: int, days: Optional[int]) -> dict:
     """Создать VLESS-ключ на Эстонии и сохранить в БД. Блокирующая операция (SSH)."""
     from vpn_manager import VPNManager  # локальный импорт: paramiko нужен только тут
 
+    device_limit = db.get_device_limit(user_id)
+
     vpn = VPNManager()
-    key_data = vpn.generate_vpn_key(user_id, days=days)
+    key_data = vpn.generate_vpn_key(user_id, days=days, device_limit=device_limit)
     db.add_vpn_key(
         user_id=user_id,
         uuid=key_data["uuid"],
@@ -166,8 +189,102 @@ def issue_key(db, user_id: int, days: Optional[int]) -> dict:
         expires_at=key_data["expires_at"],
         vless_link=key_data["vless_link"],
         server="estonia",
+        email=key_data.get("email"),
     )
     return key_data
+
+
+def extend_or_issue_key(db, user_id: int, days: Optional[int]) -> dict:
+    """ПРОДЛИТЬ срок активного ключа на `days` или выдать новый, если ключа нет.
+
+    Это правильная логика оплаты: дни ПРИБАВЛЯЮТСЯ к текущей дате окончания
+    (а если ключ уже истёк — считаем от сейчас). Срок обновляется И в БД,
+    И на 3x-ui-панели у ТОГО ЖЕ клиента (uuid/email не меняются) — поэтому
+    уже импортированная пользователем подписка продолжает работать, просто
+    с новой датой. Работает даже если сейчас активен пробный (trial) тариф:
+    его остаток сохраняется, а оплаченные дни добавляются сверху.
+
+    days=None трактуется как «бессрочно» (expiry снимается).
+    """
+    key = db.get_active_key(user_id)
+    if not key:
+        # Активного ключа нет — выдаём новый обычным путём.
+        return issue_key(db, user_id, days)
+
+    key_id = key[0]
+    uuid_val = key[2]
+    email = key[-1]  # email — последняя колонка vpn_keys
+    current_expiry = _parse_dt(key[7])
+    now = datetime.now()
+
+    if days:
+        # База: текущий срок, если он ещё в будущем (продлеваем), иначе — сейчас.
+        base = current_expiry if (current_expiry and current_expiry > now) else now
+        new_expiry = base + timedelta(days=days)
+    else:
+        new_expiry = None  # бессрочно
+
+    device_limit = db.get_device_limit(user_id)
+
+    # 1) Обновляем срок на 3x-ui-панели (тот же клиент: ключ не перевыпускаем).
+    try:
+        from vpn_manager import VPNManager
+        VPNManager().set_key_expiry(uuid_val, email, new_expiry, device_limit)
+    except Exception as exc:
+        print(f"extend_or_issue_key: panel expiry update failed: {exc}")
+
+    # 2) Обновляем срок в БД.
+    db.update_key_expiry(key_id, new_expiry)
+
+    return {
+        "uuid": uuid_val,
+        "email": email,
+        "expires_at": new_expiry,
+        "extended": True,
+    }
+
+
+def build_devices_state(db, user_id: int) -> dict:
+    """Состояние устройств для Mini App: лимит, занято, цена докупки."""
+    limit = db.get_device_limit(user_id)
+    email = db.get_active_key_email(user_id)
+
+    used = 0
+    online = False
+    if email:
+        try:
+            from vpn_manager import VPNManager
+            info = VPNManager().get_connected_devices(email)
+            used = info.get("count", 0)
+            online = info.get("online", False)
+        except Exception:
+            pass
+
+    return {
+        "limit": limit,
+        "used": min(used, limit) if limit else used,
+        "online": online,
+        "has_key": bool(email),
+        "pack_size": DEVICE_PACK_SIZE,
+        "pack_price": DEVICE_PACK_PRICE,
+        "default": DEVICE_LIMIT_DEFAULT,
+    }
+
+
+def apply_device_limit(db, user_id: int) -> bool:
+    """Применить текущий лимит устройств пользователя к его активному ключу в 3x-ui."""
+    key = db.get_active_key(user_id)
+    if not key:
+        return False
+    uuid_val = key[2]      # vpn_keys.uuid
+    email = key[-1]        # vpn_keys.email (последняя колонка)
+    if not email:
+        return False
+    try:
+        from vpn_manager import VPNManager
+        return VPNManager().set_device_limit(uuid_val, email, db.get_device_limit(user_id))
+    except Exception:
+        return False
 
 
 # ==================== СБОРКА СОСТОЯНИЯ ДЛЯ ФРОНТА ====================
@@ -184,7 +301,14 @@ def build_subscription_state(db, user_id: int) -> dict:
     plan = None
 
     if has_key:
-        key = keys[0]
+        # Берём ключ с самым поздним сроком окончания (None = бессрочно = «самый поздний»).
+        # Так после продления оплатой показывается актуальный (продлённый) ключ,
+        # а не первый по порядку (например, ещё активный пробный).
+        def _key_expiry(k):
+            dt = _parse_dt(k[7])
+            return dt or datetime.max
+
+        key = max(keys, key=_key_expiry)
         created_at = _parse_dt(key[6])
         expires_at = _parse_dt(key[7])
         if sub:
@@ -249,10 +373,11 @@ def build_state(db, user: dict) -> dict:
             "title": PLAN_TITLE[key],
             "price": PRICES[key],
             "days": PLAN_DAYS[key],
-            "badge": {"6_months": "Выгодно", "1_year": "Хит"}.get(key),
+            "badge": PLAN_BADGE.get(key),
             "per_month": round(PRICES[key] / (PLAN_DAYS[key] / 30)),
         }
-        for key in ("1_month", "6_months", "1_year")
+        for key in PLAN_ORDER
+        if key in PRICES
     ]
 
     return {
@@ -276,6 +401,15 @@ def build_state(db, user: dict) -> dict:
             "bonus_hours": balance["bonus_hours"],
         },
         "tariffs": tariffs,
+        # Лёгкая часть про устройства (без обращения к панели). Живой счётчик
+        # подключённых устройств подгружается отдельно через /api/devices.
+        "devices": {
+            "limit": db.get_device_limit(user_id),
+            "default": DEVICE_LIMIT_DEFAULT,
+            "pack_size": DEVICE_PACK_SIZE,
+            "pack_price": DEVICE_PACK_PRICE,
+            "has_key": bool(db.get_active_key_email(user_id)),
+        },
         "trial_available": (not db.has_used_trial(user_id)) and (db.get_active_subscription(user_id) is None),
         "trial_days": TRIAL_DAYS,
         "payment": {

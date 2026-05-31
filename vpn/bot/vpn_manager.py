@@ -2,6 +2,8 @@ import json
 import uuid
 from datetime import datetime, timedelta
 
+import paramiko
+
 from config import (
     VPN_NAME,
     VPS2_DOMAIN,
@@ -25,10 +27,6 @@ class VPNManager:
         self.password = password or VPS2_PASSWORD
 
     def _connect(self):
-        # Ленивый импорт: paramiko нужен только для SSH-фолбэка,
-        # обычная выдача ключей идёт через 3x-ui панель (по HTTP).
-        import paramiko
-
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(self.host, username=self.user, password=self.password, timeout=30)
@@ -93,7 +91,7 @@ class VPNManager:
         finally:
             client.close()
 
-    def _add_client_via_best_method(self, user_uuid, email, days):
+    def _add_client_via_best_method(self, user_uuid, email, days, limit_ip=0):
         """Add a client to Estonia via 3x-ui API, fall back to SSH config edit."""
         try:
             panel = get_estonia_panel()
@@ -103,6 +101,7 @@ class VPNManager:
                     client_id=user_uuid,
                     expiry_days=days or 0,
                     traffic_gb=0,
+                    limit_ip=limit_ip or 0,
                 )
                 if result:
                     return True
@@ -112,7 +111,7 @@ class VPNManager:
         fallback = VPNManager(host=VPS2_HOST, port=VPS2_PORT, user=VPS2_USER, password=VPS2_PASSWORD)
         return fallback.add_user_to_server(user_uuid, VPS2_SHORT_ID)
 
-    def generate_vpn_key(self, user_id, days=None, use_3xui=True):
+    def generate_vpn_key(self, user_id, days=None, use_3xui=True, device_limit=0):
         user_uuid = str(uuid.uuid4())
         short_id = VPS2_SHORT_ID
         email = f"user_{user_id}_{uuid.uuid4().hex[:8]}@aeroprojectvpn.com"
@@ -123,6 +122,7 @@ class VPNManager:
             user_uuid=user_uuid,
             email=email,
             days=days,
+            limit_ip=device_limit or 0,
         )
 
         if not estonia_ok:
@@ -197,3 +197,92 @@ class VPNManager:
             return status == "active"
         finally:
             client.close()
+
+    # ==================== УСТРОЙСТВА ====================
+
+    def get_connected_devices(self, email: str) -> dict:
+        """Сколько устройств РЕАЛЬНО подключено по ключу прямо сейчас.
+
+        Возвращает {"online": bool, "count": int, "ips": [...]}.
+
+        Логика (важно для корректности счётчика):
+          • online определяем по /panel/api/inbounds/onlines — это «живой» признак;
+          • если клиент онлайн — число устройств = число различных IP из журнала
+            3x-ui (get_client_ips). Если журнал IP пуст (лог IP в панели выключен) —
+            показываем минимум 1, раз подключение есть.
+          • если клиент офлайн — устройств 0, ДАЖЕ если в журнале остались старые
+            IP (журнал copит адреса и сам не очищается, поэтому len(ips) для офлайна
+            давал завышенное/неверное число — это и был баг счётчика).
+        """
+        result = {"online": False, "count": 0, "ips": []}
+        if not email:
+            return result
+        try:
+            panel = get_estonia_panel()
+            if not panel:
+                return result
+
+            online_emails = panel.get_online_emails()
+            is_online = email in online_emails
+            result["online"] = is_online
+
+            ips = panel.get_client_ips(email)
+            result["ips"] = ips
+
+            if is_online:
+                # Реальное число устройств = различные IP в журнале; минимум 1.
+                result["count"] = len(ips) if ips else 1
+            else:
+                # Офлайн — никаких подключённых устройств (старые IP в журнале игнорируем).
+                result["count"] = 0
+        except Exception as exc:
+            print(f"get_connected_devices error: {exc}")
+        return result
+
+    def set_device_limit(self, client_id: str, email: str, limit_ip: int) -> bool:
+        """Применить новый лимит устройств к существующему ключу в 3x-ui."""
+        if not client_id or not email:
+            return False
+        try:
+            panel = get_estonia_panel()
+            if not panel:
+                return False
+            current = panel.get_client(email) or {}
+            return panel.update_client(
+                client_id=client_id,
+                email=email,
+                limit_ip=limit_ip,
+                expiry_time=int(current.get("expiryTime") or 0),
+                total_bytes=int(current.get("total") or 0),
+                enable=bool(current.get("enable", True)),
+            )
+        except Exception as exc:
+            print(f"set_device_limit error: {exc}")
+            return False
+
+    def set_key_expiry(self, client_id: str, email: str, expires_at, device_limit: int = 0) -> bool:
+        """Обновить дату окончания клиента в 3x-ui (продление без перевыпуска ключа).
+
+        expires_at — datetime или None (None -> expiryTime=0, т.е. бессрочно).
+        Лимит устройств и enable сохраняем (enable=True — на случай, если ключ
+        был отключён панелью по истечению срока, продление снова включает его).
+        """
+        if not client_id or not email:
+            return False
+        try:
+            panel = get_estonia_panel()
+            if not panel:
+                return False
+            current = panel.get_client(email) or {}
+            expiry_ms = int(expires_at.timestamp() * 1000) if expires_at else 0
+            return panel.update_client(
+                client_id=client_id,
+                email=email,
+                limit_ip=int(device_limit or 0),
+                expiry_time=expiry_ms,
+                total_bytes=int(current.get("total") or 0),
+                enable=True,
+            )
+        except Exception as exc:
+            print(f"set_key_expiry error: {exc}")
+            return False
