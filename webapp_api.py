@@ -156,16 +156,15 @@ async def api_buy(request):
     if method in ("card_ru", "card_ua"):
         order_id = db.create_order(uid, username, plan, price)
         kb = {"inline_keyboard": [[
-            {"text": "✅ Подтвердить", "callback_data": f"confirm_pay_{order_id}"},
-            {"text": "❌ Отклонить", "callback_data": f"reject_pay_{order_id}"},
+            {"text": "Подтвердить", "callback_data": f"confirm_pay_{order_id}"},
+            {"text": "Отклонить", "callback_data": f"reject_pay_{order_id}"},
         ]]}
-        flag = "🇷🇺" if method == "card_ru" else "🇺🇦"
+        region = "РФ" if method == "card_ru" else "Украина"
         text = (
-            f"🛒 <b>Новый заказ (карта {flag})</b>\n"
-            f"👤 @{username or uid}  (<code>{uid}</code>)\n"
-            f"📦 {title} — {price}₽\n"
-            f"📋 Order #{order_id}\n\n"
-            f"❗️ Ожидает подтверждения"
+            f"<b>Новый заказ — карта ({region})</b>\n"
+            f"Пользователь: @{username or uid} (<code>{uid}</code>)\n"
+            f"Тариф: {title} — {price}₽\n"
+            f"Заказ #{order_id} · ожидает подтверждения"
         )
         for admin_id in ADMIN_IDS:
             tg_send_message(admin_id, text, kb)
@@ -231,13 +230,13 @@ async def _grant_paid_order(order):
     if user_row and user_row[6]:  # referrer_id
         cashback = db.add_purchase_cashback(user_row[6], price)
         tg_send_message(user_row[6],
-                        f"🎉 Реферальный кэшбэк: <b>+{cashback}₽</b> на баланс!")
+                        f"Реферальный бонус: <b>+{cashback}₽</b> на баланс.")
 
     # Докупка устройств: увеличиваем лимит и применяем к активному ключу.
     if is_devices_plan(plan):
         new_limit = db.add_device_slots(uid, DEVICE_PACK_SIZE)
         await run_blocking(apply_device_limit, db, uid)
-        tg_send_message(uid, f"✅ Оплата получена! Лимит устройств теперь <b>{new_limit}</b> 📱")
+        tg_send_message(uid, f"Оплата получена. Лимит устройств теперь <b>{new_limit}</b>.")
         return
 
     days = PLAN_DAYS.get(plan, 30)
@@ -245,7 +244,7 @@ async def _grant_paid_order(order):
     # Продлеваем срок активного ключа (или выдаём новый, если ключа ещё нет),
     # а не перевыпускаем — иначе оплаченные дни «не доходят» до пользователя.
     await run_blocking(extend_or_issue_key, db, uid, days)
-    tg_send_message(uid, f"✅ Оплата получена! Подписка <b>{PLAN_TITLE.get(plan, plan)}</b> активна 🇪🇪")
+    tg_send_message(uid, f"Оплата получена. Подписка <b>{PLAN_TITLE.get(plan, plan)}</b> активна.")
 
 
 async def api_devices(request):
@@ -345,9 +344,82 @@ async def api_admin_order_action(request):
     if action == "reject":
         db.cursor.execute("UPDATE orders SET status = 'rejected' WHERE id = ?", (order_id,))
         db.conn.commit()
-        tg_send_message(order[1], f"❌ Заказ #{order_id} отклонён. Свяжитесь с {ADMIN_USERNAME}")
+        tg_send_message(order[1], f"Заказ #{order_id} отклонён. Свяжитесь с {ADMIN_USERNAME}")
         return web.json_response({"ok": True})
     return err("Неизвестное действие")
+
+
+async def api_admin_user(request):
+    """Найти пользователя по ID или @username и вернуть детальную карточку."""
+    user, error = admin_only(request)
+    if error:
+        return error
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    q = (body.get("query") or "").strip()
+    if not q:
+        return err("Введите ID или @username")
+
+    q2 = q.lstrip("@")
+    if q.startswith("@") or not q2.isdigit():
+        row = db.get_user_by_username(q2)
+    else:
+        row = db.get_user(int(q2))
+
+    if not row:
+        return err("Пользователь не найден", 404)
+
+    detail = services.build_admin_user_detail(db, row[0])
+    return web.json_response({"ok": True, "user": detail})
+
+
+async def api_admin_user_action(request):
+    """Действия над пользователем: блок / разблок / выдать дни подписки."""
+    user, error = admin_only(request)
+    if error:
+        return error
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    target_id = body.get("user_id")
+    action = body.get("action")
+    if not target_id:
+        return err("Не указан пользователь")
+    target_id = int(target_id)
+
+    if not db.get_user(target_id):
+        return err("Пользователь не найден", 404)
+
+    if action == "block":
+        db.block_user(target_id)
+        tg_send_message(target_id, "Доступ к VPN приостановлен администратором.")
+    elif action == "unblock":
+        db.unblock_user(target_id)
+        tg_send_message(target_id, "Доступ к VPN снова открыт.")
+    elif action == "grant":
+        try:
+            days = int(body.get("days") or 0)
+        except (TypeError, ValueError):
+            days = 0
+        if days <= 0 or days > 3650:
+            return err("Укажите число дней от 1 до 3650")
+        db.add_subscription(target_id, "grant", 0, days)
+        try:
+            await run_blocking(extend_or_issue_key, db, target_id, days)
+        except Exception:
+            return err("Не удалось обновить ключ на сервере, попробуйте позже", 503)
+        tg_send_message(
+            target_id,
+            f"Вам начислено <b>{days}</b> дн. подписки. Откройте приложение, чтобы подключиться.",
+        )
+    else:
+        return err("Неизвестное действие")
+
+    detail = services.build_admin_user_detail(db, target_id)
+    return web.json_response({"ok": True, "user": detail})
 
 
 async def api_admin_broadcast(request):
@@ -367,7 +439,7 @@ async def api_admin_broadcast(request):
     def _send_all():
         sent = 0
         for uid in user_ids:
-            res = tg_send_message(uid, f"📢 <b>Сообщение от администрации</b>\n\n{text}")
+            res = tg_send_message(uid, f"<b>Сообщение от администрации</b>\n\n{text}")
             if res and res.get("ok"):
                 sent += 1
         return sent
@@ -416,10 +488,12 @@ def create_app():
     _register(app, "POST", "/api/admin/users", api_admin_users)
     _register(app, "POST", "/api/admin/orders", api_admin_orders)
     _register(app, "POST", "/api/admin/order-action", api_admin_order_action)
+    _register(app, "POST", "/api/admin/user", api_admin_user)
+    _register(app, "POST", "/api/admin/user-action", api_admin_user_action)
     _register(app, "POST", "/api/admin/broadcast", api_admin_broadcast)
     return app
 
 
 if __name__ == "__main__":
-    print(f"🌐 {VPN_NAME} Mini App backend on :{WEBAPP_PORT}")
+    print(f"{VPN_NAME} Mini App backend on :{WEBAPP_PORT}")
     web.run_app(create_app(), host="0.0.0.0", port=WEBAPP_PORT)

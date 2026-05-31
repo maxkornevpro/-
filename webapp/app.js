@@ -12,6 +12,11 @@
   const haptic = (type) => { try { tg && tg.HapticFeedback.impactOccurred(type || "light"); } catch (e) {} };
   const notify = (type) => { try { tg && tg.HapticFeedback.notificationOccurred(type); } catch (e) {} };
 
+  // Встроенная SVG-иконка (без эмодзи).
+  const icon = (name) => '<svg class="ic"><use href="#ic-' + name + '"></use></svg>';
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
   function toast(msg) {
     const t = $("toast");
     t.textContent = msg;
@@ -26,7 +31,7 @@
       headers: { "Content-Type": "application/json", "X-Init-Data": (tg && tg.initData) || "" },
       body: JSON.stringify(body || {}),
     });
-    try { return await res.json(); } catch (e) { return { ok: false, error: "network" }; }
+    try { return await res.json(); } catch (e) { return { ok: false, error: "Нет связи с сервером" }; }
   }
 
   function copy(text) {
@@ -64,7 +69,7 @@
     } else { btn.classList.add("hidden"); }
   }
 
-  // ---------- render ----------
+  // ---------- render: главный экран ----------
   function statusMeta(s) {
     return {
       none:    { label: "Нет подписки", cls: "none" },
@@ -81,31 +86,30 @@
     pill.textContent = meta.label;
     pill.className = "pill " + meta.cls;
 
-    // ring
     const C = 2 * Math.PI * 52;
     const pct = sub.has_key ? (sub.progress || 0) : 0;
     $("ring-fg").style.strokeDashoffset = String(C - (C * pct) / 100);
     $("ring-value").textContent = sub.forever ? "∞" : (sub.has_key ? (sub.days_left + "д") : "—");
 
     $("status-expires").textContent =
-      sub.has_key ? (sub.forever ? "Бессрочная подписка" : "до " + (sub.expires_human || "")) :
-      "Активируй пробный период или выбери тариф";
+      sub.has_key ? (sub.forever ? "Бессрочная подписка" : "действует до " + (sub.expires_human || "")) :
+      "Активируйте пробный период или выберите тариф";
 
     const btn = $("hero-action");
     if (sub.status === "active" || sub.status === "trial") {
-      btn.textContent = "Подключить";
+      btn.innerHTML = icon("connect") + " Подключить";
       btn.className = "btn btn-primary";
       btn.onclick = () => { haptic(); setTab("key"); };
     } else if (sub.status === "expired") {
-      btn.textContent = "Продлить подписку";
+      btn.innerHTML = "Продлить подписку";
       btn.className = "btn btn-primary";
       btn.onclick = () => { haptic(); scrollToTariffs(); };
     } else if (STATE.trial_available) {
-      btn.textContent = "🎁 Попробовать " + STATE.trial_days + " дн. бесплатно";
+      btn.innerHTML = icon("gift") + " Попробовать бесплатно · " + STATE.trial_days + " дн.";
       btn.className = "btn btn-primary";
       btn.onclick = doTrial;
     } else {
-      btn.textContent = "Выбрать тариф";
+      btn.innerHTML = "Выбрать тариф";
       btn.className = "btn btn-primary";
       btn.onclick = () => { haptic(); scrollToTariffs(); };
     }
@@ -122,9 +126,9 @@
       const el = document.createElement("div");
       el.className = "tariff" + (t.plan === "6_months" ? " best" : "");
       el.innerHTML =
-        (t.badge ? '<span class="badge">' + t.badge + "</span>" : "") +
-        '<div><div class="tariff-name">' + t.title + "</div>" +
-        '<div class="tariff-sub">≈ ' + t.per_month + "₽ / мес</div></div>" +
+        (t.badge ? '<span class="badge">' + esc(t.badge) + "</span>" : "") +
+        '<div><div class="tariff-name">' + esc(t.title) + "</div>" +
+        '<div class="tariff-sub">примерно ' + t.per_month + " ₽ в месяц</div></div>" +
         '<div class="tariff-price">' + t.price + "₽<small>" + t.days + " дней</small></div>";
       el.onclick = () => openPaySheet(t);
       box.appendChild(el);
@@ -155,7 +159,7 @@
     $("ref-copy").onclick = () => { haptic(); copy(r.link); };
     $("ref-share").onclick = () => {
       haptic();
-      const text = "🛡 Быстрый VPN без логов — первый день бесплатно!";
+      const text = "Пользуюсь быстрым VPN без логов — первый день бесплатно. Заходи:";
       const url = "https://t.me/share/url?url=" + encodeURIComponent(r.link) + "&text=" + encodeURIComponent(text);
       if (tg) tg.openTelegramLink(url); else window.open(url, "_blank");
     };
@@ -172,11 +176,14 @@
     const used = typeof d.used === "number" ? d.used : 0;
     $("dev-count").textContent = (d.has_key ? used : 0) + " / " + limit;
 
-    let status;
-    if (!d.has_key) status = "Лимит активируется с подпиской";
-    else if (d.online) status = "🟢 Сейчас онлайн · " + used + " из " + limit;
-    else status = "Подключено устройств: " + used + " из " + limit;
-    $("dev-status").textContent = status;
+    const st = $("dev-status");
+    if (!d.has_key) {
+      st.innerHTML = "Лимит активируется вместе с подпиской";
+    } else if (d.online) {
+      st.innerHTML = '<span class="dot online"></span> Сейчас онлайн · ' + used + " из " + limit;
+    } else {
+      st.innerHTML = '<span class="dot"></span> Сейчас не подключено';
+    }
 
     const pct = limit ? Math.max(6, Math.min(100, Math.round((used / limit) * 100))) : 0;
     $("dev-bar-fill").style.width = pct + "%";
@@ -184,7 +191,7 @@
 
     const price = d.pack_price || 0;
     const size = d.pack_size || 10;
-    $("dev-buy").textContent = "➕ Докупить +" + size + " устройств · " + price + "₽";
+    $("dev-buy").innerHTML = icon("plus") + " Добавить +" + size + " устройств · " + price + "₽";
     $("dev-buy").onclick = () => openPaySheet({
       plan: "devices_10",
       title: "+" + size + " устройств",
@@ -195,7 +202,7 @@
   }
 
   async function loadDevices(spin) {
-    if (spin) $("dev-status").textContent = "Обновляем…";
+    if (spin) $("dev-status").innerHTML = "Обновляем…";
     const res = await api("api/devices");
     if (res && res.ok && res.devices) {
       STATE.devices = Object.assign({}, STATE.devices, res.devices);
@@ -228,7 +235,7 @@
     STATE.subscription = res.subscription;
     STATE.trial_available = false;
     renderAll();
-    toast("Готово! Подписка активна 🎉");
+    toast("Готово, подписка активна");
     setTab("key");
   }
 
@@ -237,15 +244,16 @@
     currentPay = t;
     const p = STATE.payment;
     const methods = [];
-    if (p.crypto_enabled) methods.push({ m: "crypto", ico: "crypto", icon: "🪙", label: "Криптовалюта (CryptoBot)" });
-    methods.push({ m: "card_ru", ico: "ru", icon: "💳", label: "Карта РФ" });
-    methods.push({ m: "card_ua", ico: "ua", icon: "💳", label: "Карта Украины" });
+    if (p.crypto_enabled) methods.push({ m: "crypto", ic: "coin", label: "Криптовалюта (CryptoBot)" });
+    methods.push({ m: "card_ru", ic: "card", label: "Карта РФ" });
+    methods.push({ m: "card_ua", ic: "card", label: "Карта Украины" });
 
     $("sheet-content").innerHTML =
-      "<h3>" + t.title + "</h3><p class='pay-sum'>К оплате " + t.price + "₽</p>" +
+      "<h3>" + esc(t.title) + "</h3><p class='pay-sum'>К оплате " + t.price + " ₽</p>" +
       '<div class="pay-methods">' +
       methods.map((x) =>
-        '<div class="pay-m" data-m="' + x.m + '"><div class="ico ' + x.ico + '">' + x.icon + "</div>" + x.label + "</div>"
+        '<div class="pay-m" data-m="' + x.m + '"><span class="ico">' + icon(x.ic) + "</span>" + x.label +
+        '<span class="pay-arrow">' + icon("chevron") + "</span></div>"
       ).join("") + "</div>";
 
     $("sheet-content").querySelectorAll(".pay-m").forEach((el) => {
@@ -262,23 +270,23 @@
 
     if (res.method === "crypto") {
       $("sheet-content").innerHTML =
-        "<h3>Оплата криптой</h3><p class='pay-sum'>" + t.title + " — " + t.price + "₽</p>" +
+        "<h3>Оплата криптовалютой</h3><p class='pay-sum'>" + esc(t.title) + " — " + t.price + " ₽</p>" +
         '<button id="pay-open" class="btn btn-primary">Перейти к оплате</button>' +
         '<button id="pay-check" class="btn btn-soft" style="margin-top:10px">Я оплатил — проверить</button>' +
-        '<p class="muted" style="text-align:center;margin-top:12px;font-size:13px">Ключ выдастся автоматически после оплаты</p>';
+        '<p class="muted center small" style="margin-top:12px">Ключ выдастся автоматически после оплаты</p>';
       $("pay-open").onclick = () => { haptic(); tg ? tg.openTelegramLink(res.pay_url) : window.open(res.pay_url, "_blank"); };
       $("pay-check").onclick = () => checkPayment(res.order_id, true);
       startPolling(res.order_id);
     } else {
       const card = res.card;
       $("sheet-content").innerHTML =
-        "<h3>Оплата картой</h3><p class='pay-sum'>" + t.title + " — " + t.price + "₽</p>" +
+        "<h3>Оплата картой</h3><p class='pay-sum'>" + esc(t.title) + " — " + t.price + " ₽</p>" +
         (card
-          ? '<div class="card-label">Реквизиты</div><div class="codebox" id="card-num">' + card + "</div>" +
-            '<button id="card-copy" class="btn btn-soft" style="margin-top:10px">Скопировать номер</button>'
-          : "<p class='muted'>Напиши администратору за реквизитами:</p>") +
-        '<p class="muted" style="margin-top:14px;font-size:13px">Заказ #' + res.order_id +
-        ". После оплаты напиши " + res.admin + " — ключ выдадут вручную.</p>" +
+          ? '<div class="card-label">Реквизиты для перевода</div><div class="codebox" id="card-num">' + esc(card) + "</div>" +
+            '<button id="card-copy" class="btn btn-soft" style="margin-top:10px">' + icon("copy") + " Скопировать номер</button>"
+          : "<p class='muted'>Напишите администратору за реквизитами.</p>") +
+        '<p class="muted small" style="margin-top:14px">Заказ #' + res.order_id +
+        ". После перевода напишите " + esc(res.admin) + " — подтвердим вручную.</p>" +
         '<button id="card-admin" class="btn btn-primary" style="margin-top:6px">Написать администратору</button>';
       const cc = $("card-copy"); if (cc) cc.onclick = () => copy(card);
       $("card-admin").onclick = () => {
@@ -309,19 +317,18 @@
       if (res.subscription) STATE.subscription = res.subscription;
       closeSheet();
       if (isDevices) {
-        // Лимит устройств изменился — подтягиваем свежее состояние.
         const fresh = await api("api/state");
         if (fresh && fresh.ok) STATE = fresh;
         renderAll();
         loadDevices(true);
-        toast("Готово! Устройства добавлены ✅");
+        toast("Готово, устройства добавлены");
       } else {
         renderAll();
-        toast("Оплачено! Подписка активна ✅");
+        toast("Оплата прошла, подписка активна");
         setTab("key");
       }
     } else if (manual) {
-      toast("Оплата ещё не пришла");
+      toast("Оплата ещё не поступила");
     }
   }
 
@@ -337,33 +344,51 @@
     ]);
     if (s.ok) {
       const st = s.stats;
-      $("admin-stats").innerHTML = [
-        ["Пользователей", st.total_users], ["Подписок", st.active_subs],
-        ["Ключей", st.active_keys], ["Заказов", st.pending_orders],
-      ].map(([c, n]) => '<div class="stat"><div class="stat-num">' + n + '</div><div class="stat-cap">' + c + "</div></div>").join("");
+      const cards = [
+        ["users", "Пользователей", st.total_users],
+        ["check", "Подписок", st.active_subs],
+        ["key", "Ключей", st.active_keys],
+        ["doc", "Заказов", st.pending_orders],
+      ];
+      $("admin-stats").innerHTML = cards.map(([ic, c, n]) =>
+        '<div class="stat"><div class="stat-top">' + icon(ic) +
+        '<span class="stat-num">' + n + "</span></div>" +
+        '<div class="stat-cap">' + c + "</div></div>").join("");
     }
     if (o.ok) renderOrders(o.orders);
     if (u.ok) {
-      $("admin-users").innerHTML = u.users.map((x) =>
-        '<div class="urow"><span>' + (x.username ? "@" + x.username : x.first_name || x.id) +
-        '</span><span class="muted">' + x.id + (x.blocked ? " 🚫" : "") + "</span></div>"
-      ).join("") || "<div class='muted'>Пусто</div>";
+      $("admin-users").innerHTML = u.users.map((x) => {
+        const name = x.username ? "@" + esc(x.username) : esc(x.first_name || x.id);
+        const blockTag = x.blocked ? '<span class="utag">заблокирован</span>' : "";
+        return '<div class="urow" data-id="' + x.id + '"><span>' + name + blockTag +
+          '</span><span class="muted">' + x.id + " " + icon("chevron") + "</span></div>";
+      }).join("") || "<div class='muted'>Пусто</div>";
+      $("admin-users").querySelectorAll(".urow").forEach((row) => {
+        row.onclick = () => {
+          const id = row.getAttribute("data-id");
+          $("u-search").value = id;
+          findUser(id);
+          $("u-card").scrollIntoView({ behavior: "smooth", block: "center" });
+        };
+      });
     }
     $("bc-send").onclick = sendBroadcast;
+    $("u-find").onclick = () => findUser($("u-search").value.trim());
+    $("u-search").onkeydown = (e) => { if (e.key === "Enter") findUser($("u-search").value.trim()); };
   }
 
   function renderOrders(orders) {
     const box = $("admin-orders");
-    if (!orders.length) { box.innerHTML = "<div class='muted'>Нет заказов</div>"; return; }
+    if (!orders.length) { box.innerHTML = "<div class='muted'>Нет новых заказов</div>"; return; }
     box.innerHTML = "";
     orders.forEach((o) => {
       const el = document.createElement("div");
       el.className = "order";
       el.innerHTML =
-        '<div class="order-top"><span>@' + (o.username || o.user_id) + " · " + o.plan +
+        '<div class="order-top"><span>@' + esc(o.username || o.user_id) + " · " + esc(o.plan) +
         '</span><b>' + o.price + "₽</b></div>" +
-        '<div class="row"><button class="btn btn-ok btn-sm">Подтвердить</button>' +
-        '<button class="btn btn-bad btn-sm">Отклонить</button></div>';
+        '<div class="row"><button class="btn btn-ok btn-sm">' + icon("check") + ' Подтвердить</button>' +
+        '<button class="btn btn-bad btn-sm">' + icon("x") + ' Отклонить</button></div>';
       const [okBtn, noBtn] = el.querySelectorAll("button");
       okBtn.onclick = () => orderAction(o.id, "confirm");
       noBtn.onclick = () => orderAction(o.id, "reject");
@@ -376,6 +401,66 @@
     const res = await api("api/admin/order-action", { order_id: id, action });
     if (res.ok) { notify("success"); toast(action === "confirm" ? "Подтверждено" : "Отклонено"); loadAdmin(); }
     else { notify("error"); toast(res.error || "Ошибка"); }
+  }
+
+  // --- управление пользователем ---
+  async function findUser(q) {
+    if (!q) return toast("Введите ID или @username");
+    const res = await api("api/admin/user", { query: q });
+    if (!res.ok) { notify("error"); $("u-card").classList.add("hidden"); return toast(res.error || "Не найдено"); }
+    renderUserCard(res.user);
+  }
+
+  function subLine(sub) {
+    if (!sub || !sub.has_key) return "нет подписки";
+    if (sub.forever) return "бессрочно";
+    if (sub.status === "expired") return "истекла";
+    return sub.days_left + " дн. · до " + (sub.expires_human || "");
+  }
+
+  function renderUserCard(u) {
+    const box = $("u-card");
+    box.classList.remove("hidden");
+    const name = u.username ? "@" + esc(u.username) : esc(u.first_name || ("ID " + u.id));
+    box.innerHTML =
+      '<div class="uc-head"><div class="uc-name">' + name + "</div>" +
+      '<span class="pill ' + (u.blocked ? "expired" : "active") + '">' +
+      (u.blocked ? "Заблокирован" : "Активен") + "</span></div>" +
+      '<div class="uc-grid">' +
+      ucItem("ID", u.id) +
+      ucItem("Подписка", subLine(u.subscription)) +
+      ucItem("Лимит устройств", u.device_limit) +
+      ucItem("Приглашено", u.referrals) +
+      ucItem("Баланс", (u.balance || 0) + " ₽") +
+      ucItem("Регистрация", u.joined || "—") +
+      "</div>" +
+      '<div class="card-label" style="margin-top:14px">Выдать подписку</div>' +
+      '<div class="uc-grant">' +
+      [7, 30, 90, 365].map((d) => '<button class="btn btn-soft btn-sm" data-d="' + d + '">+' + d + " дн.</button>").join("") +
+      "</div>" +
+      '<button id="uc-block" class="btn btn-sm ' + (u.blocked ? "btn-ok" : "btn-bad") + '" style="margin-top:10px">' +
+      icon(u.blocked ? "unlock" : "lock") + (u.blocked ? " Разблокировать" : " Заблокировать") + "</button>";
+
+    box.querySelectorAll(".uc-grant button").forEach((b) => {
+      b.onclick = () => userAction(u.id, "grant", parseInt(b.getAttribute("data-d"), 10));
+    });
+    $("uc-block").onclick = () => userAction(u.id, u.blocked ? "unblock" : "block");
+  }
+
+  function ucItem(label, value) {
+    return '<div class="uc-item"><span class="muted">' + label + "</span><b>" + esc(value) + "</b></div>";
+  }
+
+  async function userAction(id, action, days) {
+    haptic("medium");
+    const res = await api("api/admin/user-action", { user_id: id, action, days });
+    if (res.ok) {
+      notify("success");
+      toast(action === "grant" ? "Начислено " + days + " дн."
+        : action === "block" ? "Пользователь заблокирован"
+        : action === "unblock" ? "Пользователь разблокирован" : "Готово");
+      renderUserCard(res.user);
+    } else { notify("error"); toast(res.error || "Ошибка"); }
   }
 
   async function sendBroadcast() {
@@ -416,13 +501,13 @@
     showLoader(false);
 
     if (!data.ok) {
-      showGate({ text: "Открой приложение через нашего Telegram-бота, чтобы продолжить." });
+      showGate({ text: "Откройте приложение через нашего Telegram-бота, чтобы продолжить." });
       return;
     }
     STATE = data;
 
     if (data.blocked) {
-      showGate({ text: "Ваш аккаунт заблокирован. Обратитесь в поддержку." });
+      showGate({ text: "Ваш доступ приостановлен. Напишите в поддержку." });
       return;
     }
     if (data.needs_channel) {

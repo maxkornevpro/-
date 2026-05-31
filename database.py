@@ -127,6 +127,16 @@ class Database:
     def get_user(self, user_id):
         self.cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         return self.cursor.fetchone()
+
+    def get_user_by_username(self, username):
+        """Найти пользователя по @username (без учёта регистра)."""
+        username = (username or "").lstrip("@").strip()
+        if not username:
+            return None
+        self.cursor.execute(
+            "SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,)
+        )
+        return self.cursor.fetchone()
     
     def has_used_trial(self, user_id):
         self.cursor.execute("SELECT trial_used FROM users WHERE user_id = ?", (user_id,))

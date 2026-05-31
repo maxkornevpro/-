@@ -57,24 +57,25 @@ dp = Dispatcher()
 db = Database()
 
 WELCOME = (
-    f"🛡 <b>{VPN_NAME}</b>\n\n"
-    "Быстрый VPN без логов на сервере 🇪🇪 <b>Эстония</b>.\n"
-    "Первый день — бесплатно, без карты.\n\n"
-    "Нажми кнопку ниже, чтобы открыть приложение 👇"
+    f"<b>{VPN_NAME}</b>\n\n"
+    "Быстрый VPN на сервере в Эстонии. Без логов, без рекламы, "
+    "без ограничений по трафику.\n\n"
+    "Первый день — бесплатно, карта не нужна. Нажмите кнопку ниже, "
+    "чтобы открыть приложение."
 )
 
 
 def open_app_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🚀 Открыть приложение", web_app=WebAppInfo(url=WEBAPP_URL)),
+        InlineKeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=WEBAPP_URL)),
     ]])
 
 
 def subscribe_kb() -> InlineKeyboardMarkup:
     channel = CHANNEL_USERNAME.lstrip("@")
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Подписаться на канал", url=f"https://t.me/{channel}")],
-        [InlineKeyboardButton(text="✅ Я подписался", callback_data="check_sub")],
+        [InlineKeyboardButton(text="Подписаться на канал", url=f"https://t.me/{channel}")],
+        [InlineKeyboardButton(text="Я подписался", callback_data="check_sub")],
     ])
 
 
@@ -104,12 +105,12 @@ async def cmd_start(message: Message):
     db.add_user(uid, message.from_user.username, message.from_user.first_name, referrer_id)
 
     if db.is_user_blocked(uid):
-        await message.answer(f"🚫 Аккаунт заблокирован. Поддержка: {ADMIN_USERNAME}")
+        await message.answer(f"Доступ заблокирован. Поддержка: {ADMIN_USERNAME}")
         return
 
     if not await is_subscribed(uid):
         await message.answer(
-            "📢 Чтобы пользоваться ботом, подпишись на наш канал.",
+            "Чтобы пользоваться ботом, подпишитесь на наш канал.",
             reply_markup=subscribe_kb(),
         )
         return
@@ -122,7 +123,7 @@ async def check_sub(callback: CallbackQuery):
     if await is_subscribed(callback.from_user.id):
         await callback.message.edit_text(WELCOME, reply_markup=open_app_kb(), parse_mode=ParseMode.HTML)
     else:
-        await callback.answer("Ты ещё не подписался на канал", show_alert=True)
+        await callback.answer("Подписка на канал пока не найдена", show_alert=True)
 
 
 @dp.callback_query(F.data.startswith("confirm_pay_"))
@@ -146,7 +147,7 @@ async def confirm_pay(callback: CallbackQuery):
     if user_row and user_row[6]:  # referrer cashback
         cashback = db.add_purchase_cashback(user_row[6], price)
         try:
-            await bot.send_message(user_row[6], f"🎉 Реферальный кэшбэк: <b>+{cashback}₽</b>", parse_mode=ParseMode.HTML)
+            await bot.send_message(user_row[6], f"Реферальный бонус: <b>+{cashback}₽</b> на баланс.", parse_mode=ParseMode.HTML)
         except Exception:
             pass
 
@@ -160,13 +161,13 @@ async def confirm_pay(callback: CallbackQuery):
         try:
             await bot.send_message(
                 uid,
-                f"✅ Оплата подтверждена! Лимит устройств теперь <b>{new_limit}</b> 📱",
+                f"Оплата подтверждена. Лимит устройств теперь <b>{new_limit}</b>.",
                 reply_markup=open_app_kb(),
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
             pass
-        await callback.message.edit_text(f"✅ Заказ #{order_id} подтверждён (+{DEVICE_PACK_SIZE} устройств).")
+        await callback.message.edit_text(f"Заказ #{order_id} подтверждён (+{DEVICE_PACK_SIZE} устройств).")
         return
 
     days = PLAN_DAYS.get(plan, 30)
@@ -184,15 +185,15 @@ async def confirm_pay(callback: CallbackQuery):
     try:
         await bot.send_message(
             uid,
-            f"✅ Оплата подтверждена! Подписка <b>{PLAN_TITLE.get(plan, plan)}</b> активна.\n"
-            "Открой приложение, чтобы забрать ключ 👇",
+            f"Оплата подтверждена. Подписка <b>{PLAN_TITLE.get(plan, plan)}</b> активна.\n"
+            "Откройте приложение, чтобы подключиться.",
             reply_markup=open_app_kb(),
             parse_mode=ParseMode.HTML,
         )
     except Exception:
         pass
 
-    await callback.message.edit_text(f"✅ Заказ #{order_id} подтверждён, ключ выдан.")
+    await callback.message.edit_text(f"Заказ #{order_id} подтверждён, ключ выдан.")
 
 
 @dp.callback_query(F.data.startswith("reject_pay_"))
@@ -209,11 +210,11 @@ async def reject_pay(callback: CallbackQuery):
 
     if row:
         try:
-            await bot.send_message(row[0], f"❌ Заказ #{order_id} отклонён. Поддержка: {ADMIN_USERNAME}")
+            await bot.send_message(row[0], f"Заказ #{order_id} отклонён. Поддержка: {ADMIN_USERNAME}")
         except Exception:
             pass
 
-    await callback.message.edit_text(f"❌ Заказ #{order_id} отклонён.")
+    await callback.message.edit_text(f"Заказ #{order_id} отклонён.")
 
 
 async def setup_bot():

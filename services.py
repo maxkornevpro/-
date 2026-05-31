@@ -357,6 +357,29 @@ def build_subscription_state(db, user_id: int) -> dict:
     }
 
 
+def build_admin_user_detail(db, user_id: int) -> Optional[dict]:
+    """Детальная карточка пользователя для админ-панели."""
+    row = db.get_user(user_id)
+    if not row:
+        return None
+    # users: user_id, username, first_name, joined_at, trial_used,
+    #        is_active, referrer_id, balance, bonus_hours, device_limit
+    bal = db.get_user_balance(user_id)
+    return {
+        "id": row[0],
+        "username": row[1],
+        "first_name": row[2],
+        "joined": str(row[3])[:10] if row[3] else None,
+        "trial_used": bool(row[4]),
+        "blocked": (row[5] == 0),
+        "device_limit": db.get_device_limit(user_id),
+        "balance": bal["balance"],
+        "bonus_hours": bal["bonus_hours"],
+        "referrals": db.get_referral_count(user_id),
+        "subscription": build_subscription_state(db, user_id),
+    }
+
+
 def build_state(db, user: dict) -> dict:
     """Полное состояние для главного экрана Mini App."""
     user_id = int(user["id"])
@@ -417,5 +440,5 @@ def build_state(db, user: dict) -> dict:
             "card_ru": CARD_RU,
             "card_ua": CARD_UA,
         },
-        "brand": {"name": VPN_NAME, "server": "Эстония", "flag": "🇪🇪"},
+        "brand": {"name": VPN_NAME, "server": "Эстония", "flag": ""},
     }
