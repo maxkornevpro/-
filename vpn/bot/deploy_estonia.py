@@ -86,11 +86,24 @@ def write_remote_file(client, path, content):
 
 
 def stop_old_instances(client):
-    print("\n🛑 Останавливаю старые экземпляры...")
+    print("\n🛑 Ищу и убиваю старые экземпляры бота...")
+
+    # Диагностика: что крутится прямо сейчас
+    _, before = run(
+        client,
+        "ps -eo pid,args | grep -iE 'python.*(bot|aiogram|telebot|subscription_api|webapp_api|vpn)' | grep -v grep || true",
+        show=False,
+    )
+    if before.strip():
+        print("  Сейчас запущено:")
+        for line in before.strip().splitlines():
+            print("   " + line.strip()[:110])
+
+    # 1. systemd: стоп+disable любых похожих юнитов (чужие — удаляем)
     run(
         client,
         r'''
-for unit in $(grep -rlE "bot\.py|subscription_api|webapp_api" /etc/systemd/system/ 2>/dev/null); do
+for unit in $(grep -rilE "bot\.py|subscription_api|webapp_api|aiogram|aeroprojectvpn|vpn_bot|telebot" /etc/systemd/system/ 2>/dev/null); do
     name=$(basename "$unit")
     echo "  • systemd: $name -> stop + disable"
     systemctl stop "$name" 2>/dev/null
@@ -104,20 +117,48 @@ systemctl daemon-reload 2>/dev/null
 true
 ''',
     )
-    run(client, "pkill -9 -f bot.py 2>/dev/null; pkill -9 -f subscription_api 2>/dev/null; "
+
+    # 2. Процесс-менеджеры (если бот крутился под ними)
+    run(client,
+        "command -v pm2 >/dev/null 2>&1 && pm2 delete all >/dev/null 2>&1; "
+        "pkill -9 -f 'SCREEN.*bot' 2>/dev/null; "
+        "supervisorctl stop all >/dev/null 2>&1; true",
+        show=False)
+
+    # 3. Убиваем по имени скрипта (в любом каталоге)
+    run(client, "pkill -9 -f 'bot\\.py' 2>/dev/null; pkill -9 -f subscription_api 2>/dev/null; "
                 "pkill -9 -f webapp_api 2>/dev/null; true", show=False)
+
+    # 4. Умный добив: любой python-процесс с признаками бота (любой путь/имя)
+    _, ps_out = run(client, "ps -eo pid,args", show=False)
+    keys = ("bot.py", "subscription_api", "webapp_api", "aiogram", "telebot", "vpn_bot")
+    pids = []
+    for line in ps_out.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and "python" in parts[1].lower() and any(k in parts[1].lower() for k in keys):
+            pids.append(parts[0])
+    if pids:
+        print(f"  🔪 Добиваю PID: {', '.join(pids)}")
+        run(client, "kill -9 " + " ".join(pids) + " 2>/dev/null; true", show=False)
+
     time.sleep(2)
-    _, cnt = run(client, "ps aux | grep -E 'bot\\.py|subscription_api|webapp_api' | grep -v grep | wc -l", show=False)
-    print(f"  ✅ Старое остановлено. Процессов: {cnt or '0'}")
+    _, cnt = run(client, "ps -eo args | grep -iE 'python.*(bot\\.py|subscription_api|webapp_api|aiogram)' | grep -v grep | wc -l", show=False)
+    print(f"  ✅ Готово. Осталось bot-процессов: {cnt.strip() or '0'}")
 
 
 def main():
-    missing = [f for f in PY_FILES + WEBAPP_FILES if not os.path.isfile(os.path.join(LOCAL_DIR, f))]
-    if missing:
-        print(f"❌ Не найдены файлы: {missing}")
-        sys.exit(1)
+    mode = sys.argv[1].lower() if len(sys.argv) > 1 else "deploy"
+    if mode not in ("deploy", "kill"):
+        sys.exit("Использование: python3 deploy_estonia.py [deploy|kill]")
 
-    print(f"🚀 Деплой AeroProjectVPN (бот + Mini App) на Эстонию ({HOST})")
+    if mode == "deploy":
+        missing = [f for f in PY_FILES + WEBAPP_FILES if not os.path.isfile(os.path.join(LOCAL_DIR, f))]
+        if missing:
+            print(f"❌ Не найдены файлы: {missing}")
+            sys.exit(1)
+
+    head = "Убиваю старый бот" if mode == "kill" else "Деплой AeroProjectVPN (бот + Mini App)"
+    print(f"🚀 {head} — Эстония ({HOST})")
     print("=" * 56)
 
     client = paramiko.SSHClient()
@@ -127,6 +168,11 @@ def main():
     print("✅ Подключено")
 
     stop_old_instances(client)
+
+    if mode == "kill":
+        client.close()
+        print("\n✅ Готово: старый бот убит. Новый код не трогал.")
+        return
 
     print(f"\n📁 Готовлю {REMOTE_DIR}...")
     run(client, f"mkdir -p {REMOTE_DIR}/webapp")
