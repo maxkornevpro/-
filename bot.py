@@ -46,6 +46,7 @@ from services import (
     extend_or_issue_key,
     is_devices_plan,
     issue_key,
+    parse_devices_qty,
 )
 from token_crypto import decrypt_token
 
@@ -153,7 +154,8 @@ async def confirm_pay(callback: CallbackQuery):
 
     # Докупка устройств — увеличиваем лимит, ключ не перевыпускаем.
     if is_devices_plan(plan):
-        new_limit = db.add_device_slots(uid, DEVICE_PACK_SIZE)
+        qty = parse_devices_qty(plan)
+        new_limit = db.add_device_slots(uid, qty)
         try:
             await asyncio.to_thread(apply_device_limit, db, uid)
         except Exception as exc:
@@ -167,7 +169,7 @@ async def confirm_pay(callback: CallbackQuery):
             )
         except Exception:
             pass
-        await callback.message.edit_text(f"Заказ #{order_id} подтверждён (+{DEVICE_PACK_SIZE} устройств).")
+        await callback.message.edit_text(f"Заказ #{order_id} подтверждён (+{qty} устройств).")
         return
 
     days = PLAN_DAYS.get(plan, 30)

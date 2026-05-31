@@ -1,7 +1,7 @@
 import sqlite3
 import json
 from datetime import datetime, timedelta
-from config import DB_FILE, DEVICE_LIMIT_DEFAULT
+from config import DB_FILE, DEVICE_LIMIT_DEFAULT, DEVICE_MAX
 
 class Database:
     def __init__(self):
@@ -365,18 +365,21 @@ class Database:
         return int(result[0])
 
     def add_device_slots(self, user_id, count):
-        """Докупить устройства: увеличить лимит на count. Возвращает новый лимит."""
+        """Докупить устройства: увеличить лимит на count, но не выше DEVICE_MAX.
+        Возвращает новый лимит."""
         # На случай, если строки пользователя ещё нет — создаём с дефолтом.
         self.cursor.execute(
             "INSERT OR IGNORE INTO users (user_id, device_limit) VALUES (?, ?)",
             (user_id, DEVICE_LIMIT_DEFAULT)
         )
+        current = self.get_device_limit(user_id)
+        new_limit = min(DEVICE_MAX, current + max(0, int(count)))
         self.cursor.execute(
-            "UPDATE users SET device_limit = COALESCE(device_limit, ?) + ? WHERE user_id = ?",
-            (DEVICE_LIMIT_DEFAULT, count, user_id)
+            "UPDATE users SET device_limit = ? WHERE user_id = ?",
+            (new_limit, user_id)
         )
         self.conn.commit()
-        return self.get_device_limit(user_id)
+        return new_limit
     
     # ==================== ADMIN/STATS ====================
     

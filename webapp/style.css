@@ -250,6 +250,18 @@ body{
 .pay-arrow{margin-left:auto;color:var(--muted)}
 .pay-arrow .ic{width:18px;height:18px}
 
+/* Степпер выбора количества устройств */
+.stepper{display:flex;align-items:center;gap:14px;justify-content:center;margin:6px 0 4px}
+.step-btn{width:46px;height:46px;border-radius:12px;border:1px solid var(--border2);background:var(--surface2);
+  color:var(--text);font-size:24px;font-weight:600;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.step-btn:disabled{opacity:.4;cursor:default}
+.step-val{min-width:84px;text-align:center}
+.step-val b{display:block;font-size:30px;font-weight:700;line-height:1}
+.step-val span{font-size:12px;color:var(--muted)}
+.dev-total{text-align:center;color:var(--muted);font-size:14px;margin:6px 0 16px}
+.dev-total b{color:var(--text);font-size:16px}
+.btn.disabled,.btn:disabled{opacity:.5;cursor:default}
+
 /* Тост */
 .toast{position:fixed;left:50%;bottom:104px;transform:translateX(-50%) translateY(20px);
   background:#252e3b;border:1px solid var(--border2);color:var(--text);padding:11px 18px;border-radius:12px;

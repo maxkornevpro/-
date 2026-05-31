@@ -755,48 +755,42 @@ def build_app_links_page(token):
     android_apps = [
         {
             'title': 'Happ',
-            'subtitle': 'Открывает импорт подписки. Если доступно, используется скрытая `happ://crypt...` ссылка.',
+            'badge': 'Рекомендуем',
+            'subtitle': 'Самый простой способ: нажмите «Открыть» — подписка добавится автоматически.',
             'actions': [
                 happ_primary_action,
-                build_link_button('Сайт', 'https://happ.info'),
+                build_link_button('Установить', 'https://play.google.com/store/apps/details?id=com.happproxy'),
             ],
         },
         {
             'title': 'Hiddify',
-            'subtitle': 'Импортирует подписку напрямую через deeplink.',
+            'subtitle': 'Импорт подписки по кнопке «Открыть».',
             'actions': [
                 build_link_button('Открыть', f'hiddify://import/{encoded_subscription_url}#{app_name}', 'btn primary'),
-                build_link_button('Сайт', 'https://hiddify.com/app/'),
+                build_link_button('Установить', 'https://play.google.com/store/apps/details?id=app.hiddify.com'),
+            ],
+        },
+        {
+            'title': 'v2rayNG',
+            'subtitle': 'Нажмите «Скопировать», затем в приложении: + → Импорт из буфера обмена.',
+            'actions': [
+                build_copy_button('Скопировать ссылку', subscription_url, 'btn primary'),
+                build_link_button('Установить', 'https://play.google.com/store/apps/details?id=com.v2ray.ang'),
             ],
         },
         {
             'title': 'V2Box',
-            'subtitle': 'Добавляет подписку по URL в один тап.',
+            'subtitle': 'Добавляет подписку в один тап по кнопке «Открыть».',
             'actions': [
                 build_link_button('Открыть', f'v2box://install-sub?url={encoded_subscription_url}&name={app_name}', 'btn primary'),
             ],
         },
         {
-            'title': 'v2rayNG',
-            'subtitle': 'Копирует ссылку. Дальше вставь её в `Subscription group setting` внутри приложения.',
-            'actions': [
-                build_copy_button('Скопировать ссылку', subscription_url, 'btn primary'),
-                build_link_button('Скачать', 'https://github.com/2dust/v2rayNG/releases'),
-            ],
-        },
-        {
-            'title': 'v2rayTun',
-            'subtitle': 'Если приложение поддерживает deeplink, подписка импортируется сразу.',
+            'title': 'v2RayTun',
+            'subtitle': 'Кнопка «Открыть» импортирует подписку.',
             'actions': [
                 build_link_button('Открыть', f'v2raytun://import-sub?url={encoded_subscription_url}', 'btn primary'),
-                build_copy_button('Скопировать ссылку', subscription_url),
-            ],
-        },
-        {
-            'title': 'NekoBox / NekoRay Android',
-            'subtitle': 'Надёжный вариант: скопировать ссылку и импортировать из URL/буфера внутри приложения.',
-            'actions': [
-                build_copy_button('Скопировать ссылку', subscription_url, 'btn primary'),
+                build_copy_button('Скопировать', subscription_url),
             ],
         },
     ]
@@ -804,63 +798,65 @@ def build_app_links_page(token):
     ios_apps = [
         {
             'title': 'Happ',
-            'subtitle': 'Открывает скрытый импорт подписки, если сервис шифрования доступен.',
+            'badge': 'Рекомендуем',
+            'subtitle': 'Нажмите «Открыть» — подписка добавится автоматически.',
             'actions': [
                 happ_primary_action,
-                build_link_button('Сайт', 'https://happ.info'),
+                build_link_button('Установить', 'https://apps.apple.com/app/happ-proxy-utility/id6504287215'),
             ],
         },
         {
             'title': 'Shadowrocket',
-            'subtitle': 'Импортирует подписку по deeplink.',
+            'subtitle': 'Импорт подписки по кнопке «Открыть».',
             'actions': [
                 build_link_button('Открыть', f'shadowrocket://add/sub://{encoded_shadowrocket_url}?remark={app_name}', 'btn primary'),
             ],
         },
         {
+            'title': 'Streisand',
+            'subtitle': 'Скопируйте ссылку и выберите «Import from Clipboard» в приложении.',
+            'actions': [
+                build_copy_button('Скопировать ссылку', subscription_url, 'btn primary'),
+            ],
+        },
+        {
             'title': 'Hiddify',
-            'subtitle': 'Прямой импорт подписки.',
+            'subtitle': 'Прямой импорт подписки по кнопке «Открыть».',
             'actions': [
                 build_link_button('Открыть', f'hiddify://import/{encoded_subscription_url}#{app_name}', 'btn primary'),
-                build_link_button('Сайт', 'https://hiddify.com/app/'),
+                build_link_button('Установить', 'https://apps.apple.com/app/hiddify-proxy-vpn/id6596777532'),
             ],
         },
         {
             'title': 'V2Box',
-            'subtitle': 'Добавляет подписку по deeplink.',
+            'subtitle': 'Добавляет подписку по кнопке «Открыть».',
             'actions': [
                 build_link_button('Открыть', f'v2box://install-sub?url={encoded_subscription_url}&name={app_name}', 'btn primary'),
-            ],
-        },
-        {
-            'title': 'Streisand',
-            'subtitle': 'Скопируй ссылку и выбери `Import from Clipboard` в приложении.',
-            'actions': [
-                build_copy_button('Скопировать ссылку', subscription_url, 'btn primary'),
             ],
         },
     ]
 
     desktop_apps = [
         {
-            'title': 'Hiddify Desktop',
-            'subtitle': 'На ПК deeplink может открыться сразу. Если нет, просто скопируй ссылку.',
+            'title': 'Hiddify',
+            'badge': 'Рекомендуем',
+            'subtitle': 'Windows, macOS и Linux. Нажмите «Открыть» или скопируйте ссылку.',
             'actions': [
                 build_link_button('Открыть', f'hiddify://import/{encoded_subscription_url}#{app_name}', 'btn primary'),
-                build_copy_button('Скопировать ссылку', subscription_url),
+                build_copy_button('Скопировать', subscription_url),
             ],
         },
         {
             'title': 'Happ Desktop',
-            'subtitle': 'Использует скрытую ссылку, либо ручное добавление подписки.',
+            'subtitle': 'Открывает импорт подписки. Либо добавьте ссылку вручную.',
             'actions': [
                 happ_primary_action,
-                build_copy_button('Скопировать ссылку', subscription_url),
+                build_copy_button('Скопировать', subscription_url),
             ],
         },
         {
             'title': 'NekoRay',
-            'subtitle': 'Вставь ссылку в `Server -> Subscription Settings` или в группу Subscription.',
+            'subtitle': 'Скопируйте ссылку и добавьте её как Subscription.',
             'actions': [
                 build_copy_button('Скопировать ссылку', subscription_url, 'btn primary'),
                 build_link_button('Скачать', 'https://github.com/MatsuriDayo/nekoray/releases'),
@@ -868,17 +864,10 @@ def build_app_links_page(token):
         },
         {
             'title': 'v2rayN',
-            'subtitle': 'Скопируй ссылку и добавь её как Subscription в приложении.',
+            'subtitle': 'Скопируйте ссылку и добавьте её как Subscription.',
             'actions': [
                 build_copy_button('Скопировать ссылку', subscription_url, 'btn primary'),
                 build_link_button('Скачать', 'https://github.com/2dust/v2rayN/releases'),
-            ],
-        },
-        {
-            'title': 'Clash / Clash Verge / Clash Meta GUI',
-            'subtitle': 'Если нужен обычный URL подписки, используй кнопку ниже с обычной ссылкой.',
-            'actions': [
-                build_copy_button('Скопировать обычную ссылку', subscription_url, 'btn primary'),
             ],
         },
     ]
@@ -887,18 +876,19 @@ def build_app_links_page(token):
     icon_mobile = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>'
     icon_laptop = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="11" rx="2"/><path d="M2 19h20"/></svg>'
 
-    def render_platform_section(title, apps, icon_svg=""):
+    def render_platform_section(apps, pf_id):
         cards = []
         for app in apps:
+            badge = f'<span class="rec">{html.escape(app["badge"])}</span>' if app.get("badge") else ""
+            rec_cls = " rec-card" if app.get("badge") else ""
             cards.append(
-                f"""<div class="app-card">
-  <div class="app-title">{html.escape(app['title'])}</div>
+                f"""<div class="app-card{rec_cls}">
+  <div class="app-head"><span class="app-title">{html.escape(app['title'])}</span>{badge}</div>
   <div class="app-subtitle">{html.escape(app['subtitle'])}</div>
   <div class="actions">{''.join(app['actions'])}</div>
 </div>"""
             )
-        return f"""<section class="platform">
-  <div class="platform-head">{icon_svg}<h2>{html.escape(title)}</h2></div>
+        return f"""<section class="platform" data-pf="{pf_id}">
   <div class="apps">{''.join(cards)}</div>
 </section>"""
 
@@ -932,11 +922,19 @@ def build_app_links_page(token):
     .label{{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}}
     .mono{{background:var(--code);border:1px solid var(--border);border-radius:11px;padding:12px;
       font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#bcd0e3;word-break:break-all}}
-    .platform{{margin-bottom:22px}}
-    .platform-head{{display:flex;align-items:center;gap:8px;color:var(--accent);margin:0 0 12px}}
-    .platform-head svg{{width:20px;height:20px;flex:none}}
-    .platform-head h2{{font-size:15px;margin:0;color:var(--text)}}
+    .tabs{{display:flex;gap:8px;margin-bottom:16px}}
+    .tabs button{{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+      background:var(--surface);border:1px solid var(--border);color:var(--muted);border-radius:11px;
+      padding:11px 8px;font:inherit;font-weight:600;font-size:13px;cursor:pointer}}
+    .tabs button.active{{background:var(--accent-deep);border-color:var(--accent-deep);color:#fff}}
+    .tabs svg{{width:17px;height:17px;flex:none}}
+    .platform{{display:none}}
+    .platform.active{{display:block}}
     .apps{{display:grid;gap:10px}}
+    .app-head{{display:flex;align-items:center;gap:8px;margin-bottom:5px}}
+    .rec{{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--accent);
+      background:var(--accent-soft);border:1px solid rgba(92,139,191,.3);padding:2px 8px;border-radius:999px}}
+    .rec-card{{border-color:rgba(92,139,191,.4)}}
     .app-card{{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px}}
     .app-title{{font-size:16px;font-weight:700;margin-bottom:4px}}
     .app-subtitle{{color:var(--muted);font-size:13px;margin-bottom:12px}}
@@ -990,13 +988,33 @@ def build_app_links_page(token):
       </div>
     </div>
 
-    {render_platform_section('Android', android_apps, icon_mobile)}
-    {render_platform_section('iPhone / iPad', ios_apps, icon_mobile)}
-    {render_platform_section('Компьютер — Windows / macOS / Linux', desktop_apps, icon_laptop)}
+    <div class="tabs">
+      <button type="button" data-pf="android" onclick="showPf('android')">{icon_mobile}Android</button>
+      <button type="button" data-pf="ios" onclick="showPf('ios')">{icon_mobile}iPhone</button>
+      <button type="button" data-pf="desktop" onclick="showPf('desktop')">{icon_laptop}ПК</button>
+    </div>
+    {render_platform_section(android_apps, 'android')}
+    {render_platform_section(ios_apps, 'ios')}
+    {render_platform_section(desktop_apps, 'desktop')}
 
-    <p class="note">Проще всего на телефоне — приложение Happ. Установите его, вернитесь сюда и нажмите «Открыть».</p>
+    <p class="note">Если кнопка «Открыть» не сработала — установите приложение, вернитесь сюда и нажмите снова. Либо «Скопировать» и вставьте ссылку в приложении вручную.</p>
     <div id="toast" class="toast"></div>
   </div>
+  <script>
+    function showPf(id) {{
+      var ss = document.querySelectorAll('.platform');
+      for (var i = 0; i < ss.length; i++) ss[i].classList.toggle('active', ss[i].getAttribute('data-pf') === id);
+      var bs = document.querySelectorAll('.tabs button');
+      for (var j = 0; j < bs.length; j++) bs[j].classList.toggle('active', bs[j].getAttribute('data-pf') === id);
+    }}
+    (function () {{
+      var ua = navigator.userAgent || '';
+      var pf = 'android';
+      if (/iPhone|iPad|iPod/.test(ua)) pf = 'ios';
+      else if (/Windows|Macintosh|Mac OS|Linux/.test(ua) && !/Android/.test(ua)) pf = 'desktop';
+      showPf(pf);
+    }})();
+  </script>
 </body>
 </html>"""
 

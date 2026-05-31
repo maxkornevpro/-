@@ -203,15 +203,20 @@
     $("dev-bar-fill").style.width = pct + "%";
     $("dev-bar-fill").classList.toggle("full", limit && used >= limit);
 
-    const price = d.pack_price || 0;
-    const size = d.pack_size || 10;
-    $("dev-buy").innerHTML = icon("plus") + " Добавить +" + size + " устройств · " + price + "₽";
-    $("dev-buy").onclick = () => openPaySheet({
-      plan: "devices_10",
-      title: "+" + size + " устройств",
-      price: price,
-      _devices: true,
-    });
+    const per = d.price || 0;
+    const maxBuy = typeof d.max_buy === "number" ? d.max_buy : 0;
+    const buyBtn = $("dev-buy");
+    if (maxBuy <= 0) {
+      buyBtn.disabled = true;
+      buyBtn.classList.add("disabled");
+      buyBtn.innerHTML = "Максимум устройств (" + (d.max || limit) + ")";
+      buyBtn.onclick = null;
+    } else {
+      buyBtn.disabled = false;
+      buyBtn.classList.remove("disabled");
+      buyBtn.innerHTML = icon("plus") + " Добавить устройства · " + per + " ₽/шт";
+      buyBtn.onclick = () => openDeviceSheet(d);
+    }
     $("dev-refresh").onclick = () => { haptic(); loadDevices(true); };
   }
 
@@ -253,33 +258,71 @@
     setTab("key");
   }
 
-  function openPaySheet(t) {
-    haptic();
-    currentPay = t;
-    const p = STATE.payment;
+  function paymentMethods() {
+    const p = STATE.payment || {};
     const methods = [];
     if (p.crypto_enabled) methods.push({ m: "crypto", ic: "coin", label: "Криптовалюта (CryptoBot)" });
     methods.push({ m: "card_ru", ic: "card", label: "Карта РФ" });
     methods.push({ m: "card_ua", ic: "card", label: "Карта Украины" });
+    return methods;
+  }
 
-    $("sheet-content").innerHTML =
-      "<h3>" + esc(t.title) + "</h3><p class='pay-sum'>К оплате " + t.price + " ₽</p>" +
-      '<div class="pay-methods">' +
-      methods.map((x) =>
-        '<div class="pay-m" data-m="' + x.m + '"><span class="ico">' + icon(x.ic) + "</span>" + x.label +
-        '<span class="pay-arrow">' + icon("chevron") + "</span></div>"
-      ).join("") + "</div>";
+  function methodsHtml(methods) {
+    return '<div class="pay-methods">' + methods.map((x) =>
+      '<div class="pay-m" data-m="' + x.m + '"><span class="ico">' + icon(x.ic) + "</span>" + x.label +
+      '<span class="pay-arrow">' + icon("chevron") + "</span></div>"
+    ).join("") + "</div>";
+  }
 
+  function wirePayMethods(t) {
     $("sheet-content").querySelectorAll(".pay-m").forEach((el) => {
       el.onclick = () => startPayment(t, el.getAttribute("data-m"));
     });
+  }
+
+  function openPaySheet(t) {
+    haptic();
+    currentPay = t;
+    $("sheet-content").innerHTML =
+      "<h3>" + esc(t.title) + "</h3><p class='pay-sum'>К оплате " + t.price + " ₽</p>" +
+      methodsHtml(paymentMethods());
+    wirePayMethods(t);
+    openSheet();
+  }
+
+  // Шторка докупки устройств: выбор количества (1..max_buy) + способ оплаты.
+  function openDeviceSheet(d) {
+    haptic();
+    const per = d.price || 0;
+    const maxBuy = d.max_buy || 1;
+    let qty = 1;
+
+    function render() {
+      const t = { plan: "devices", title: "+" + qty + " устройств", price: qty * per, _devices: true, count: qty };
+      currentPay = t;
+      $("sheet-content").innerHTML =
+        "<h3>Добавить устройства</h3>" +
+        "<p class='pay-sum'>Сейчас " + d.limit + " из " + d.max + " · " + per + " ₽ за устройство</p>" +
+        '<div class="stepper">' +
+          '<button type="button" id="q-minus" class="step-btn"' + (qty <= 1 ? " disabled" : "") + ">−</button>" +
+          '<div class="step-val"><b id="q-val">' + qty + "</b><span>шт</span></div>" +
+          '<button type="button" id="q-plus" class="step-btn"' + (qty >= maxBuy ? " disabled" : "") + ">+</button>" +
+        "</div>" +
+        '<div class="dev-total">Итого <b>' + (qty * per) + " ₽</b></div>" +
+        methodsHtml(paymentMethods());
+      $("q-minus").onclick = () => { if (qty > 1) { qty--; haptic(); render(); } };
+      $("q-plus").onclick = () => { if (qty < maxBuy) { qty++; haptic(); render(); } };
+      wirePayMethods(t);
+    }
+    render();
     openSheet();
   }
 
   async function startPayment(t, method) {
     haptic("medium");
+    currentPay = t;
     $("sheet-content").innerHTML = "<h3>Создаём счёт…</h3><p class='pay-sum'>Секунду</p>";
-    const res = await api("api/buy", { plan: t.plan, method });
+    const res = await api("api/buy", { plan: t.plan, method, count: t.count });
     if (!res.ok) { notify("error"); toast(res.error || "Ошибка"); closeSheet(); return; }
 
     if (res.method === "crypto") {

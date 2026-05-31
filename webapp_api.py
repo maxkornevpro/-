@@ -23,6 +23,9 @@ from config import (
     ADMIN_IDS,
     ADMIN_USERNAME,
     CRYPTO_BOT_TOKEN,
+    DEVICE_MAX,
+    DEVICE_MAX_BUY,
+    DEVICE_PRICE,
     DEVICE_PACK_PRICE,
     DEVICE_PACK_SIZE,
     PRICES,
@@ -127,12 +130,26 @@ async def api_buy(request):
     plan = body.get("plan")
     method = body.get("method")
 
-    # Докупка устройств — отдельный «товар» с фикс. ценой, не из PRICES.
+    # Докупка устройств — произвольное количество, по цене за штуку.
+    # Максимум за одну покупку DEVICE_MAX_BUY, суммарно не выше DEVICE_MAX.
     if is_devices_plan(plan):
-        plan = DEVICES_PLAN
-        price = DEVICE_PACK_PRICE
+        current = db.get_device_limit(uid)
+        max_buy = max(0, min(DEVICE_MAX_BUY, DEVICE_MAX - current))
+        if max_buy <= 0:
+            return err(f"Достигнут максимум устройств ({DEVICE_MAX}).")
+        try:
+            qty = int(body.get("count") or 1)
+        except (TypeError, ValueError):
+            qty = 0
+        if qty < 1 or qty > max_buy:
+            return err(f"Можно добавить от 1 до {max_buy} устройств за раз.")
+        plan = f"devices_{qty}"
+        price = qty * DEVICE_PRICE
+        title = f"+{qty} устройств"
     else:
         price = PRICES.get(plan)
+        if not price:
+            return err("Неизвестный тариф")
         # Подписку нельзя купить повторно, пока активна и осталось больше 1 дня.
         sub_state = build_subscription_state(db, uid)
         if not services.can_buy_subscription(sub_state):
@@ -143,10 +160,10 @@ async def api_buy(request):
                 f"Продлить можно, когда останется 1 день или меньше. "
                 f"Сейчас осталось {dl} дн."
             )
+        title = PLAN_TITLE.get(plan, plan)
+
     if not price:
         return err("Неизвестный тариф")
-
-    title = PLAN_TITLE.get(plan, plan)
 
     if method == "crypto":
         cp = get_cryptopay()
@@ -244,9 +261,10 @@ async def _grant_paid_order(order):
         tg_send_message(user_row[6],
                         f"Реферальный бонус: <b>+{cashback}₽</b> на баланс.")
 
-    # Докупка устройств: увеличиваем лимит и применяем к активному ключу.
+    # Докупка устройств: увеличиваем лимит на купленное количество.
     if is_devices_plan(plan):
-        new_limit = db.add_device_slots(uid, DEVICE_PACK_SIZE)
+        qty = services.parse_devices_qty(plan)
+        new_limit = db.add_device_slots(uid, qty)
         await run_blocking(apply_device_limit, db, uid)
         tg_send_message(uid, f"Оплата получена. Лимит устройств теперь <b>{new_limit}</b>.")
         return

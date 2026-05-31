@@ -27,6 +27,9 @@ from config import (
     CHANNEL_REQUIRED,
     CHANNEL_USERNAME,
     DEVICE_LIMIT_DEFAULT,
+    DEVICE_MAX,
+    DEVICE_MAX_BUY,
+    DEVICE_PRICE,
     DEVICE_PACK_PRICE,
     DEVICE_PACK_SIZE,
     PRICES,
@@ -64,6 +67,16 @@ PLAN_TITLE[DEVICES_PLAN] = f"+{DEVICE_PACK_SIZE} устройств"
 
 def is_devices_plan(plan: Optional[str]) -> bool:
     return bool(plan) and str(plan).startswith("devices")
+
+
+def parse_devices_qty(plan: Optional[str]) -> int:
+    """Сколько устройств в «товаре» devices_<N>. По умолчанию 1."""
+    try:
+        if plan and "_" in str(plan):
+            return max(1, int(str(plan).split("_", 1)[1]))
+    except Exception:
+        pass
+    return 1
 
 
 # ==================== БЕЗОПАСНОСТЬ: ВАЛИДАЦИЯ initData ====================
@@ -245,9 +258,18 @@ def extend_or_issue_key(db, user_id: int, days: Optional[int]) -> dict:
 
 
 def build_devices_state(db, user_id: int) -> dict:
-    """Состояние устройств для Mini App: лимит, занято, цена докупки."""
+    """Состояние устройств для Mini App: лимит, занято, параметры докупки."""
     limit = db.get_device_limit(user_id)
-    email = db.get_active_key_email(user_id)
+
+    # has_key — есть ли активный ключ/подписка (для отображения шкалы).
+    # email берём из любого активного ключа, у которого он задан — нужен 3x-ui.
+    keys = db.get_user_keys(user_id)
+    has_key = len(keys) > 0
+    email = None
+    for k in keys:
+        if k[-1]:
+            email = k[-1]
+            break
 
     used = 0
     online = False
@@ -257,16 +279,18 @@ def build_devices_state(db, user_id: int) -> dict:
             info = VPNManager().get_connected_devices(email)
             used = info.get("count", 0)
             online = info.get("online", False)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"build_devices_state: panel query failed: {exc}")
 
+    max_buy = max(0, min(DEVICE_MAX_BUY, DEVICE_MAX - limit))
     return {
         "limit": limit,
         "used": min(used, limit) if limit else used,
         "online": online,
-        "has_key": bool(email),
-        "pack_size": DEVICE_PACK_SIZE,
-        "pack_price": DEVICE_PACK_PRICE,
+        "has_key": has_key,
+        "max": DEVICE_MAX,
+        "price": DEVICE_PRICE,
+        "max_buy": max_buy,
         "default": DEVICE_LIMIT_DEFAULT,
     }
 
@@ -448,9 +472,10 @@ def build_state(db, user: dict) -> dict:
         "devices": {
             "limit": db.get_device_limit(user_id),
             "default": DEVICE_LIMIT_DEFAULT,
-            "pack_size": DEVICE_PACK_SIZE,
-            "pack_price": DEVICE_PACK_PRICE,
-            "has_key": bool(db.get_active_key_email(user_id)),
+            "max": DEVICE_MAX,
+            "price": DEVICE_PRICE,
+            "max_buy": max(0, min(DEVICE_MAX_BUY, DEVICE_MAX - db.get_device_limit(user_id))),
+            "has_key": bool(db.get_user_keys(user_id)),
         },
         "trial_available": (not db.has_used_trial(user_id)) and (db.get_active_subscription(user_id) is None),
         "trial_days": TRIAL_DAYS,
